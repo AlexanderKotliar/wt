@@ -106,6 +106,7 @@ WebRenderer::WebRenderer(WebSession& session)
     pageId_(0),
     expectedAckId_(0),
     scriptId_(0),
+    ackErrs_(0),
     linkedCssCount_(-1),
     currentStatelessSlotIsActuallyStateless_(true),
     formObjectsChanged_(true),
@@ -210,11 +211,12 @@ bool WebRenderer::ackUpdate(int updateId)
   if (updateId == expectedAckId_) {
     LOG_DEBUG("jsSynced(false) after ackUpdate okay");
     setJSSynced(false);
-    ++expectedAckId_;
+    ackErrs_ = 0;
     return true;
   } else if ((updateId < expectedAckId_ && expectedAckId_ - updateId < 5)
 	     || (expectedAckId_ - 5 < updateId)) {
-    return true; // That's still acceptible but no longer plausible
+    ++ackErrs_;
+    return ackErrs_ < 3; // That's still acceptible but no longer plausible
   } else
     return false;
 }
@@ -342,6 +344,7 @@ void WebRenderer::streamBootContent(WebResponse& response,
   bootJs.setVar("SESSION_ID", session_.sessionId());
 
   expectedAckId_ = scriptId_ = WRandom::get();
+  ackErrs_ = 0;
 
   bootJs.setVar("SCRIPT_ID", scriptId_);
   bootJs.setVar("RANDOMSEED", WRandom::get());
@@ -351,7 +354,7 @@ void WebRenderer::streamBootContent(WebResponse& response,
   bootJs.setVar("AJAX_CANONICAL_URL",
 		safeJsStringLiteral(session_.ajaxCanonicalUrl(response)));
   bootJs.setVar("APP_CLASS", "Wt");
-  bootJs.setVar("PATH_INFO", WWebWidget::jsStringLiteral
+  bootJs.setVar("PATH_INFO", safeJsStringLiteral
 		(session_.pagePathInfo_));
 
   bootJs.setCondition("COOKIE_CHECKS", conf.cookieChecks());
@@ -687,7 +690,7 @@ void WebRenderer::addResponseAckPuzzle(WStringStream& out)
    * continue. TO BE DONE.
    */
   out << session_.app()->javaScriptClass()
-      << "._p_.response(" << expectedAckId_;
+      << "._p_.response(" << ++expectedAckId_;
   if (!puzzle.empty())
     out << "," << puzzle;
   out << ");";
@@ -884,6 +887,7 @@ void WebRenderer::serveMainscript(WebResponse& response)
     }
   } else {
     expectedAckId_ = scriptId_ = WRandom::get();
+    ackErrs_ = 0;
   }
 
   WApplication *app = session_.app();
