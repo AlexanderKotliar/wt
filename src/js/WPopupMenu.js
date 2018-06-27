@@ -16,7 +16,13 @@ WT_DECLARE_WT_MEMBER
        hideTimeout = null,
        entered = false,
        current = null,
+       touch = null,
        haveMouseDown = false;
+
+   if (WT.isIOS) {
+     $(el).bind('touchstart', startElTouch);
+     $(el).bind('touchend', endElTouch);
+   }
 
    function doHide() {
      setOthersInactive(el, null);
@@ -62,6 +68,11 @@ WT_DECLARE_WT_MEMBER
      var margin =  WT.px(menu, 'paddingTop') + WT.px(menu, 'borderTopWidth')
      WT.positionAtWidget(menu.id, menu.parentItem.id, WT.Horizontal, -margin);
      setOthersInactive(menu, null);
+
+     if (WT.isIOS) {
+       $(menu).unbind('touchstart', startElTouch).bind('touchstart', startElTouch);
+       $(menu).unbind('touchend', endElTouch).bind('touchend', endElTouch);
+     }
    }
 
    function setOthersInactive(topLevelMenu, activeItem) {
@@ -158,9 +169,10 @@ WT_DECLARE_WT_MEMBER
    }
 
    function onDocumentClick(event) {
-     /* Only if we've recorded a mousedown ? This is not needed actually? */ 
-     if (haveMouseDown && stillExist())
+     if (stillExist()) {
+       haveMouseDown = false;
        doHide();
+     }
    }
 
    function onDocumentKeyDown(event) {
@@ -169,6 +181,9 @@ WT_DECLARE_WT_MEMBER
    }
 
    this.setHidden = function(hidden) {
+     if (!hidden)
+       haveMouseDown = false; // cancel pending hide
+
      if (hideTimeout) {
        clearTimeout(hideTimeout);
        hideTimeout = null;
@@ -178,18 +193,17 @@ WT_DECLARE_WT_MEMBER
      current = null;
 
      if (hidden) {
-	  
        el.style.position = '';
        el.style.display = '';
        el.style.left = '';
        el.style.top = '';
        $(document).unbind('mousedown', onDocumentDown);     
-       $(document).unbind('click', onDocumentClick);     
+       unbindDocumentClick();
        $(document).unbind('keydown', onDocumentKeyDown);     
      } else {
        setTimeout(function() {
 	   $(document).bind('mousedown', onDocumentDown);
-	   $(document).bind('click', onDocumentClick);     
+           bindDocumentClick();
 	   $(document).bind('keydown', onDocumentKeyDown);
 	 }, 0);
        el.style.display = 'block';
@@ -201,6 +215,51 @@ WT_DECLARE_WT_MEMBER
    this.popupAt = function(widget) {
      bindOverEvents(widget);
    };
+
+   function bindDocumentClick() {
+     if (WT.isIOS) {
+       $(document).bind("touchstart", startTouch);
+       $(document).bind("touchend", endTouch);
+     } else
+       $(document).bind("click", onDocumentClick);
+   }
+
+   function unbindDocumentClick() {
+     if (WT.isIOS) {
+       $(document).unbind("touchstart", startTouch);
+       $(document).unbind("touchend", endTouch);
+     } else
+       $(document).unbind("click", onDocumentClick);
+   }
+
+   function startTouch(event) {
+     var l = event.originalEvent.touches;
+     if (l.length > 1)
+       touch = null;
+     else {
+       touch = {
+         x: l[0].screenX,
+         y: l[0].screenY
+       }
+     }
+   }
+
+   function startElTouch(event) {
+     event.stopPropagation();
+   }
+
+   function endTouch(event) {
+     if (touch) {
+       var t = event.originalEvent.changedTouches[0];
+       if (Math.abs(touch.x - t.screenX) < 20 && Math.abs(touch.y - t.screenY) < 20)
+         onDocumentClick(event);
+       touch = null;
+     }
+   }
+
+   function endElTouch(event) {
+     event.stopPropagation();
+   }
 
    setTimeout(function() { bindOverEvents(el); }, 0);
 

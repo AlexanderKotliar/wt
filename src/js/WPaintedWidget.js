@@ -7,44 +7,47 @@
 /* Note: this is at the same time valid JavaScript and C++. */
 
 WT_DECLARE_WT_MEMBER
-(1, JavaScriptConstructor, "WPaintedWidget",
+(10, JavaScriptConstructor, "WPaintedWidget",
  function(APP, widget) {
-   this.canvas = document.getElementById('c' + widget.id);
-   var ctx = this.canvas.getContext('2d');
-
    jQuery.data(widget, 'obj', this);
 
    var self = this;
-   var WT = APP.WT;
 
-   this.jsValues = []
+   this.imagePreloaders = [];
+   this.images = [];
+   this.canvas = document.getElementById('c' + widget.id);
    this.repaint = function() {};
    this.widget = widget;
-
-   function encodeJSValues() {
-      var res = [];
-      var value;
-      var i;
-      for (i = 0; i < self.jsValues.length; ++i) {
-	 value = self.jsValues[i];
-	 if (jQuery.isArray(value) && value.length > 6) {
-	    res.push([]); // Omit painter paths, FIXME: this is kind of hacky?
-	 } else {
-	    res.push(value);
-	 }
-      }
-      return JSON.stringify(res);
-   }
-   widget.wtEncodeValue = encodeJSValues;
+   this.cancelPreloaders = function() {
+      for (var i = 0; i < self.imagePreloaders.length; ++i)
+	 self.imagePreloaders[i].cancel();
+      self.imagePreloaders = [];
+   };
  });
 
 // This should be refactored to something, somewhere?
 WT_DECLARE_WT_MEMBER
-(2, JavaScriptObject, "gfxUtils",
+(11, JavaScriptObject, "gfxUtils",
    (function() {
       var M11 = 0, M12 = 1, M21 = 2, M22 = 3, M13 = 4, M23 = 5;
       var MOVE_TO = 0, LINE_TO = 1, CUBIC_C1 = 2, CUBIC_C2 = 3, CUBIC_END = 4,
 	  QUAD_C = 5, QUAD_END = 6, ARC_C = 7, ARC_R = 8, ARC_ANGLE_SWEEP = 9;
+      var ALIGN_LEFT = 0x1,
+	  ALIGN_RIGHT = 0x2,
+	  ALIGN_CENTER = 0x4,
+	  ALIGN_JUSTIFY = 0x8, // unsupporetd?
+	  ALIGN_BASELINE = 0x10, // unsupported?
+	  ALIGN_SUB = 0x20, // unsupported?
+	  ALIGN_SUPER = 0x40, // unsupported?
+	  ALIGN_TOP = 0x80,
+	  ALIGN_TEXT_TOP = 0x100, // unsupported?
+          ALIGN_MIDDLE = 0x200,
+	  ALIGN_BOTTOM = 0x400,
+	  ALIGN_TEXT_BOTTOM = 0x800; // unsupported?
+      var ALIGN_VERTICAL_MASK =
+            ALIGN_BASELINE | ALIGN_SUB | ALIGN_SUPER | ALIGN_TOP | ALIGN_TEXT_TOP | ALIGN_MIDDLE | ALIGN_BOTTOM | ALIGN_TEXT_BOTTOM;
+      var ALIGN_HORIZONTAL_MASK =
+	    ALIGN_LEFT | ALIGN_RIGHT | ALIGN_CENTER | ALIGN_JUSTIFY;
 
       function Utils() {
 	 var self = this;
@@ -61,8 +64,8 @@ WT_DECLARE_WT_MEMBER
 	       // WPointF
 	       var x = t2[0], y = t2[1];
 	       return [
-	         t1[M11] * x + t1[M12] * y + t1[M13],
-	         t1[M21] * x + t1[M22] * y + t1[M23]
+	         t1[M11] * x + t1[M21] * y + t1[M13],
+	         t1[M12] * x + t1[M22] * y + t1[M23]
 	       ];
 	    }
 	    if (t2.length === 3) {
@@ -72,8 +75,8 @@ WT_DECLARE_WT_MEMBER
 	       // WPainterPath component
 	       var x = t2[0], y = t2[1];
 	       return [
-	         t1[M11] * x + t1[M12] * y + t1[M13],
-	         t1[M21] * x + t1[M22] * y + t1[M23],
+	         t1[M11] * x + t1[M21] * y + t1[M13],
+	         t1[M12] * x + t1[M22] * y + t1[M23],
 		 t2[2]
 	       ];
 	    }
@@ -102,12 +105,12 @@ WT_DECLARE_WT_MEMBER
 	    if (t2.length === 6) {
 	       // WTransform
 	       return [
-		  t1[M11] * t2[M11] + t1[M12] * t2[M21],
-		  t1[M11] * t2[M12] + t1[M12] * t2[M22],
-		  t1[M21] * t2[M11] + t1[M22] * t2[M21],
-		  t1[M21] * t2[M12] + t1[M22] * t2[M22],
-		  t1[M11] * t2[M13] + t1[M12] * t2[M23] + t1[M13],
-		  t1[M21] * t2[M13] + t1[M22] * t2[M23] + t1[M23]
+		  t1[M11] * t2[M11] + t1[M21] * t2[M12],
+		  t1[M12] * t2[M11] + t1[M22] * t2[M12],
+		  t1[M11] * t2[M21] + t1[M21] * t2[M22],
+		  t1[M12] * t2[M21] + t1[M22] * t2[M22],
+		  t1[M11] * t2[M13] + t1[M21] * t2[M23] + t1[M13],
+		  t1[M12] * t2[M13] + t1[M22] * t2[M23] + t1[M23]
 	       ];
 	    }
 	    return [];
@@ -219,6 +222,21 @@ WT_DECLARE_WT_MEMBER
 	    }
 	    return res;
 	 };
+         this.rect_intersection = function(rect1, rect2) {
+           rect1 = self.rect_normalized(rect1);
+           rect2 = self.rect_normalized(rect2);
+           var t = self.rect_top;
+           var b = self.rect_bottom;
+           var l = self.rect_left;
+           var r = self.rect_right;
+           var left = Math.max(l(rect1), l(rect2));
+           var right = Math.min(r(rect1), r(rect2));
+           var top = Math.max(t(rect1), t(rect2));
+           var bottom = Math.min(b(rect1), b(rect2));
+           var width = right - left;
+           var height = bottom - top;
+           return [left, top, width, height];
+         };
 	 this.drawRect = function(ctx, rect, fill, stroke) {
 	    rect = self.rect_normalized(rect);
 	    var t = self.rect_top(rect),
@@ -234,6 +252,7 @@ WT_DECLARE_WT_MEMBER
 	 };
 	 this.drawPath = function(ctx, path, fill, stroke, clip) {
 	    var i = 0, bezier = [], arc = [], quad = [];
+            /*const*/ var THRESHOLD = 0x100000;
 	    function x(segment) { return segment[0]; }
 	    function y(segment) { return segment[1]; }
 	    function type(segment) { return segment[2]; }
@@ -246,10 +265,146 @@ WT_DECLARE_WT_MEMBER
 
 	       switch (type(s)) {
 	       case MOVE_TO:
-		  ctx.moveTo(x(s), y(s));
+                  if (Math.abs(x(s)) <= THRESHOLD &&
+                      Math.abs(y(s)) <= THRESHOLD) {
+		    ctx.moveTo(x(s), y(s));
+                  }
 		  break;
 	       case LINE_TO:
-		  ctx.lineTo(x(s), y(s));
+                  (function(){
+                    var pos = i === 0 ? [0, 0] : path[i-1];
+                    var MARGIN = 50;
+                    if (!fill && !clip && stroke &&
+                        (Math.abs(x(pos)) > THRESHOLD ||
+                         Math.abs(y(pos)) > THRESHOLD ||
+                         Math.abs(x(s)) > THRESHOLD ||
+                         Math.abs(y(s)) > THRESHOLD)) {
+                      (function() {
+                        var t = ctx.wtTransform ? ctx.wtTransform : [1,0,0,1,0,0];
+                        var t_inv = self.transform_inverted(t);
+                        var t_pos = self.transform_mult(t, pos);
+                        var t_s = self.transform_mult(t, s);
+                        var dx = x(t_s) - x(t_pos);
+                        var dy = y(t_s) - y(t_pos);
+                        var w = ctx.canvas.width;
+                        var h = ctx.canvas.height;
+                        var left = -MARGIN;
+                        var right = w + MARGIN;
+                        var top = -MARGIN;
+                        var bottom = h + MARGIN;
+                        
+                        // TODO(Roel): maybe refactor?
+
+                        // Find where start + k * diff = test
+                        function find_k(start, diff, test) {
+                          return (test - start) / diff;
+                        }
+                        function calc_other(start, diff, k) {
+                          return start + k * diff;
+                        }
+
+                        var k;
+                        var p1 = null, p2 = null, p3 = null, p4 = null;
+                        var pstart, pend;
+                        if (x(t_pos) < left &&
+                            x(t_s) > left) {
+                          k = find_k(x(t_pos), dx, left);
+                          p1 = [left, calc_other(y(t_pos), dy, k), k];
+                        } else if (x(t_pos) > right &&
+                                   x(t_s) < right) {
+                          k = find_k(x(t_pos), dx, right);
+                          p1 = [right, calc_other(y(t_pos), dy, k), k];
+                        } else if (x(t_pos) > left &&
+                                   x(t_pos) < right) {
+                          p1 = [x(t_pos), y(t_pos), 0];
+                        } else {
+                          return;
+                        }
+
+                        if (y(t_pos) < top &&
+                            y(t_s) > top) {
+                          k = find_k(y(t_pos), dy, top);
+                          p2 = [calc_other(x(t_pos), dx, k), top, k];
+                        } else if (y(t_pos) > bottom &&
+                                   y(t_s) < bottom) {
+                          k = find_k(y(t_pos), dy, bottom);
+                          p2 = [calc_other(x(t_pos), dx, k), bottom, k];
+                        } else if (y(t_pos) > top &&
+                                   y(t_pos) < bottom) {
+                          p2 = [x(t_pos), y(t_pos), 0];
+                        } else {
+                          return;
+                        }
+
+                        if (p1[2] > p2[2]) {
+                          pstart = [p1[0], p1[1]];
+                        } else {
+                          pstart = [p2[0], p2[1]];
+                        }
+
+                        if (x(pstart) < left ||
+                            x(pstart) > right ||
+                            y(pstart) < top ||
+                            y(pstart) > bottom)
+                          return;
+
+                        if (x(t_pos) < right &&
+                            x(t_s) > right) {
+                          k = find_k(x(t_pos), dx, right);
+                          p3 = [right, calc_other(y(t_pos), dy, k), k];
+                        } else if (x(t_pos) > left &&
+                                   x(t_s) < left) {
+                          k = find_k(x(t_pos), dx, left);
+                          p3 = [left, calc_other(y(t_pos), dy, k), k];
+                        } else if (x(t_s) > left &&
+                                   x(t_s) < right) {
+                          p3 = [x(t_s), y(t_s), 1];
+                        } else {
+                          return;
+                        }
+
+                        if (y(t_pos) < bottom &&
+                            y(t_s) > bottom) {
+                          k = find_k(y(t_pos), dy, bottom);
+                          p4 = [calc_other(x(t_pos), dx, k), bottom, k];
+                        } else if (y(t_pos) > top &&
+                                   y(t_s) < top) {
+                          k = find_k(y(t_pos), dy, top);
+                          p4 = [calc_other(x(t_pos), dx, k), top, k];
+                        } else if (x(t_s) > top &&
+                                   y(t_s) < bottom) {
+                          p4 = [x(t_s), y(t_s), 1];
+                        } else {
+                          return;
+                        }
+
+                        if (p3[2] < p4[2]) {
+                          pend = [p3[0], p3[1]];
+                        } else {
+                          pend = [p4[0], p4[1]];
+                        }
+
+                        if (x(pend) < left ||
+                            x(pend) > right ||
+                            y(pend) < top ||
+                            y(pend) > bottom)
+                          return;
+
+                        pstart = self.transform_mult(t_inv, pstart);
+                        pend = self.transform_mult(t_inv, pend);
+
+                        ctx.moveTo(pstart[0], pstart[1]);
+                        ctx.lineTo(pend[0], pend[1]);
+                      })();
+
+                      if (Math.abs(x(s)) <= THRESHOLD &&
+                          Math.abs(y(s)) <= THRESHOLD) {
+                        ctx.moveTo(x(s), y(s));
+                      }
+                    } else {
+		      ctx.lineTo(x(s), y(s));
+                    }
+                  })();
 		  break;
 	       case CUBIC_C1:
 		  bezier.push(x(s), y(s));
@@ -274,7 +429,7 @@ WT_DECLARE_WT_MEMBER
 		  arc = [];
 		  break;
 	       case QUAD_C:
-		  quad.push(x(s));
+		  quad.push(x(s), y(s));
 		  break;
 	       case QUAD_END:
 		  quad.push(x(s), y(s));
@@ -286,6 +441,140 @@ WT_DECLARE_WT_MEMBER
 	    if (fill) ctx.fill();
 	    if (stroke) ctx.stroke();
 	    if (clip) ctx.clip();
+	 };
+	 this.drawStencilAlongPath = function(ctx, stencil, path, fill, stroke, softClipping) {
+	    var i = 0;
+	    function x(segment) { return segment[0]; }
+	    function y(segment) { return segment[1]; }
+	    function type(segment) { return segment[2]; }
+	    for (i = 0; i < path.length; i++) {
+	       var s = path[i];
+	       if (softClipping &&
+		 ctx.wtClipPath &&
+		 !self.pnpoly(s,
+		    self.transform_apply(ctx.wtClipPathTransform,
+					 ctx.wtClipPath))) {
+		continue;
+	      }
+	      if (type(s) == MOVE_TO || type(s) == LINE_TO ||
+		  type(s) == QUAD_END || type(s) == CUBIC_END) {
+		var translatedStencil = self.transform_apply([1,0,0,1,x(s),y(s)], stencil);
+		self.drawPath(ctx, translatedStencil, fill, stroke, false);
+	      }
+	    }
+	 };
+	 this.drawText = function(ctx, rect, align, text, clipPoint) {
+	   if (clipPoint &&
+	       ctx.wtClipPath &&
+	       !self.pnpoly(clipPoint,
+		  self.transform_apply(ctx.wtClipPathTransform,
+				       ctx.wtClipPath))) {
+	     return;
+	   }
+	   var hAlign = align & ALIGN_HORIZONTAL_MASK;
+	   var vAlign = align & ALIGN_VERTICAL_MASK;
+	   var x = null, y = null;
+	   switch (hAlign) {
+	     case ALIGN_LEFT:
+	       ctx.textAlign = 'left';
+	       x = self.rect_left(rect);
+	       break;
+	     case ALIGN_RIGHT:
+	       ctx.textAlign = 'right';
+	       x = self.rect_right(rect);
+	       break;
+	     case ALIGN_CENTER:
+	       ctx.textAlign = 'center';
+	       x = self.rect_center(rect).x;
+	       break;
+	   }
+	   switch (vAlign) {
+	     case ALIGN_TOP:
+	       ctx.textBaseline = 'top';
+	       y = self.rect_top(rect);
+	       break;
+	     case ALIGN_BOTTOM:
+	       ctx.textBaseline = 'bottom';
+	       y = self.rect_bottom(rect);
+	       break;
+	     case ALIGN_MIDDLE:
+	       ctx.textBaseline = 'middle';
+	       y = self.rect_center(rect).y;
+	       break;
+	   }
+	   if (x == null || y == null)
+	     return;
+
+	   var oldFillStyle = ctx.fillStyle;
+	   ctx.fillStyle = ctx.strokeStyle;
+	   ctx.fillText(text, x, y);
+	   ctx.fillStyle = oldFillStyle;
+	 };
+	 this.calcYOffset = function(lineNb, nbLines, lineHeight, valign) {
+           if (valign === ALIGN_MIDDLE) {
+	     return - ((nbLines - 1) * lineHeight / 2.0) + lineNb * lineHeight;
+	   } else if (valign === ALIGN_TOP) {
+	     return lineNb * lineHeight;
+	   } else if (valign === ALIGN_BOTTOM) {
+	     return - (nbLines - 1 - lineNb) * lineHeight;
+	   } else {
+	     return 0;
+	   }
+	 };
+	 this.drawTextOnPath = function(ctx, text, rect, transform, path, angle, lineHeight, align, softClipping) {
+	   // text: array of text labels, may have newlines!
+	   // path: the path that the text should be drawn along, could be transformed and stuff
+	   // angle: the rotational angle the text should be drawn at, in radians
+	   // lineHeight: the height of a line, duh
+	   var i = 0, j = 0;
+	   function x(segment) { return segment[0]; }
+	   function y(segment) { return segment[1]; }
+	   function type(segment) { return segment[2]; }
+	   var tpath = self.transform_apply(transform, path);
+	   for (i = 0; i < path.length; i++) {
+	     if (i >= text.length)
+	       break;
+	     var seg = path[i];
+	     var tseg = tpath[i];
+	     var split = text[i].split("\n");
+	     if (type(seg) == MOVE_TO || type(seg) == LINE_TO ||
+	         type(seg) == QUAD_END || type(seg) == CUBIC_END) {
+	       if (angle == 0) {
+		 for (j = 0; j < split.length; j++) {
+		   var yOffset = self.calcYOffset(j, split.length, lineHeight, align & ALIGN_VERTICAL_MASK);
+		   self.drawText(ctx,[rect[0] + x(tseg), rect[1] + y(tseg) + yOffset, rect[2], rect[3]], align,
+			 split[j], softClipping ? [x(tseg), y(tseg)] : null);
+		 }
+	       } else {
+		 var radAngle = angle * Math.PI / 180; 
+		 var r11 = Math.cos(-radAngle);
+		 var r12 = -Math.sin(-radAngle);
+		 var r21 = -r12;
+		 var r22 = r11;
+		 ctx.save();
+		 ctx.transform(r11, r21, r12, r22, x(tseg), y(tseg));
+		 for (j = 0; j < split.length; j++) {
+		   var yOffset = self.calcYOffset(j, split.length, lineHeight, align & ALIGN_VERTICAL_MASK);
+		   self.drawText(ctx,[rect[0], rect[1] + yOffset, rect[2], rect[3]], align, split[j], softClipping ? [x(tseg), y(tseg)] : null);
+		 }
+		 ctx.restore();
+	       }
+	     }
+	   }
+	 };
+	 this.setClipPath = function(ctx, clipPath, clipPathTransform, clip) {
+	   if (clip) {
+	     ctx.setTransform.apply(ctx, clipPathTransform);
+	     self.drawPath(ctx, clipPath, false, false, true);
+	     ctx.setTransform(1, 0, 0, 1, 0, 0);
+	   }
+
+	   ctx.wtClipPath = clipPath;
+	   ctx.wtClipPathTransform = clipPathTransform;
+	 };
+	 this.removeClipPath = function(ctx) {
+	   delete ctx.wtClipPath;
+	   delete ctx.wtClipPathTransform;
 	 };
 	 this.rect_top = function(rect) {
 	    return rect[1];

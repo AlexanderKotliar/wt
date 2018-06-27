@@ -4,7 +4,7 @@
  * See the LICENSE file for terms of use.
  */
 
-#include "Wt/Json/Object"
+#include "Wt/Json/Object.h"
 
 namespace Wt {
   namespace Json {
@@ -31,6 +31,20 @@ Object& Object::operator= (const Object& other)
   return *this;
 }
 
+Object::Object(Object&& other)
+  : Impl(std::move(other))
+{ }
+
+Object::Object(std::initializer_list<std::pair<const std::string,Value>> list)
+  : Impl(list)
+{ }
+
+Object& Object::operator= (Object&& other)
+{
+  Impl::operator=(std::move(other));
+  return *this;
+}
+
 std::set<std::string> Object::names() const
 {
   std::set<std::string> result;
@@ -50,14 +64,14 @@ Type Object::type(const std::string& name) const
 {
   const_iterator i = find(name);
   if (i == end())
-    return NullType;
+    return Type::Null;
   else
     return i->second.type();
 }
 
 bool Object::isNull(const std::string& name) const
 {
-  return type(name) == NullType;
+  return type(name) == Type::Null;
 }
 
 const Value& Object::get(const std::string& name) const

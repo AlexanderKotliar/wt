@@ -14,7 +14,7 @@ WT_DECLARE_WT_MEMBER
   var WT = APP.WT, scrollTops = [], scrollLefts = [];
 
   function isProperChild(el) {
-    return el.nodeType == 1;
+    return el.nodeType == 1 && !$(el).hasClass("wt-reparented");
   }
 
   this.wtResize = function(self, w, h, layout) {
@@ -143,7 +143,10 @@ WT_DECLARE_WT_MEMBER
 	    c.style.display = 'none';
 	  }
 	} else {
-	  c.style.display = '';
+          if (c.style.flexFlow)
+            c.style.display = 'flex';
+          else
+	    c.style.display = '';
 
 	  if (widget.lh) {
 	    widget.lh = false;
@@ -226,8 +229,14 @@ WT_DECLARE_WT_MEMBER
        to.style.left = '';
        to.style.width = '';
        to.style.top = '';
-       to.style.height = to.nativeHeight;
+
+       /* If fade-only animation within a layout, retain set height */
+       if (!effects
+           || typeof jQuery.data(stack.parentNode, 'layout') === 'undefined')
+         to.style.height = to.nativeHeight;
+
        to.nativeHeight = null;
+
        if (WT.isGecko && (effects & Fade))
          to.style.opacity = '1';
        to.style[WT.styleAttribute('animation-duration')] = '';

@@ -1,8 +1,8 @@
-#include "Wt/WApplication"
-#include "Wt/Auth/FacebookService"
-#include "Wt/Json/Object"
-#include "Wt/Json/Parser"
-#include "Wt/Http/Client"
+#include "Wt/WApplication.h"
+#include "Wt/Auth/FacebookService.h"
+#include "Wt/Json/Object.h"
+#include "Wt/Json/Parser.h"
+#include "Wt/Http/Client.h"
 
 #define ERROR_MSG(e) WString::tr("Wt.Auth.FacebookService." e)
 
@@ -25,22 +25,25 @@ LOGGER("Auth.FacebookService");
 
   namespace Auth {
 
-class FacebookProcess : public OAuthProcess
+class FacebookProcess final : public OAuthProcess
 {
 public:
   FacebookProcess(const FacebookService& auth, const std::string& scope)
     : OAuthProcess(auth, scope)
   { }
 
-  virtual void getIdentity(const OAuthAccessToken& token)
+  virtual void getIdentity(const OAuthAccessToken& token) override
   {
-    Http::Client *client = new Http::Client(this);
-    client->setTimeout(15);
-    client->setMaximumResponseSize(10*1024);
+    httpClient_.reset(new Http::Client());
+    httpClient_->setTimeout(std::chrono::seconds{15});
+    httpClient_->setMaximumResponseSize(10*1024);
 
-    client->done().connect
-      (boost::bind(&FacebookProcess::handleMe, this, _1, _2));
-    client->get("https://graph.facebook.com/me?access_token=" + token.value());
+    httpClient_->done().connect
+      (this, std::bind(&FacebookProcess::handleMe, this,
+		       std::placeholders::_1,
+		       std::placeholders::_2));
+    httpClient_->get("https://graph.facebook.com/me?fields=name,id,email&access_token="
+		     + token.value());
 
 #ifndef WT_TARGET_JAVA
     WApplication::instance()->deferRendering();
@@ -48,7 +51,9 @@ public:
   }
 
 private:
-  void handleMe(boost::system::error_code err, const Http::Message& response)
+  std::unique_ptr<Http::Client> httpClient_;
+
+  void handleMe(AsioWrapper::error_code err, const Http::Message& response)
   {
 #ifndef WT_TARGET_JAVA
     WApplication::instance()->resumeRendering();
@@ -75,8 +80,8 @@ private:
       } else {
 	std::string id = me.get("id");
 	WT_USTRING userName = me.get("name");
-	std::string email = me.get("email");
-	bool emailVerified = me.get("verified").orIfNull(false);
+	std::string email = me.get("email").orIfNull("");
+        bool emailVerified = !me.get("email").isNull();
 
 	authenticated().emit(Identity(service().name(), id, userName,
 				      email, emailVerified));
@@ -173,14 +178,20 @@ std::string FacebookService::clientSecret() const
   return configurationProperty(ClientSecretProperty);
 }
 
-Http::Method FacebookService::tokenRequestMethod() const
+ClientSecretMethod FacebookService::clientSecretMethod() const
 {
-  return Http::Get;
+  return PlainUrlParameter;
 }
 
-OAuthProcess *FacebookService::createProcess(const std::string& scope) const
+Http::Method FacebookService::tokenRequestMethod() const
 {
-  return new FacebookProcess(*this, scope);
+  return Http::Method::Get;
+}
+
+std::unique_ptr<OAuthProcess> FacebookService
+::createProcess(const std::string& scope) const
+{
+  return std::unique_ptr<OAuthProcess>(new FacebookProcess(*this, scope));
 }
 
   }

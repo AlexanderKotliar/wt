@@ -57,11 +57,15 @@ span.Wt-disabled, fieldset.Wt-disabled legend {
  */
 .Wt-dialogcover {
     background: #CCCCCC;
-    background: rgb(204, 204, 204); /* For IE, ... */
-    background: rgba(204, 204, 204, 0.5);
+    background: rgb(204, 204, 204);
     height: 100%; width: 100%;
     top: 0px; left: 0px;
     position: fixed;
+}
+
+.Wt-dialogcover.in {
+    filter: alpha(opacity=50);
+    opacity: 0.5;
 }
 
 /*
@@ -185,7 +189,17 @@ span.Wt-disabled, fieldset.Wt-disabled legend {
  * WDateEdit
  */
 .Wt-dateedit {
-    background-image: url('../../calendar_edit.png');
+    background-image: url('../../date.gif');
+    background-repeat: no-repeat;
+    background-position: right top;
+    padding-right: 40px;
+}
+
+/*
+ * WTimeEdit
+ */
+.Wt-timeedit {
+    background-image: url('../../icon_clock.gif');
     background-repeat: no-repeat;
     background-position: right top;
     padding-right: 40px;
@@ -206,6 +220,13 @@ span.Wt-disabled, fieldset.Wt-disabled legend {
 }
 
 /*
+ * Wt-timeedit
+ */
+.Wt-timeedit::-ms-clear {
+    display: none
+}
+
+/*
  * WDialog
  */
 .Wt-dialog {
@@ -216,9 +237,12 @@ span.Wt-disabled, fieldset.Wt-disabled legend {
 .Wt-dialog .titlebar {
     color: #FFFFFF;
     background: #6880A0 url(title-gradient.png) repeat-x scroll 0 -20px;
-    cursor: move;
     font: bold 12px Verdana;
     padding: 3px 6px;
+}
+
+.Wt-dialog .movable .titlebar {
+    cursor: move;
 }
 
 .Wt-dialog .closeicon {
@@ -1196,4 +1220,44 @@ body.Wt-rtl .Wt-treeview li .Wt-tv-row .Wt-tv-c {
 
 table.x-grid3-row-table {
     table-layout: fixed;
+}
+
+.Wt-filedropzone {
+    width: 200px;
+    height: 200px;
+    border: thick dashed grey;
+    background-color: lightgrey;
+}
+
+.Wt-filedropzone.Wt-dropzone-hover {
+    border-color: green;
+}
+
+.Wt-filedropzone.Wt-dropzone-hover * {
+    pointer-events: none;
+}
+
+.Wt-fileupload-hidden {
+    display: none !important;
+}
+
+.Wt-filedropzone.Wt-dropzone-dragstyle {
+    position: relative;
+    z-index: 20001;
+}
+
+.Wt-filedropzone.Wt-dropzone-indication {
+    border-color: green;
+}
+
+.Wt-dropcover {
+    position: fixed;
+    top: 0px;
+    left: 0px;
+    width: 100%;
+    height: 100%;
+    z-index: -100;
+}
+.Wt-dropcover.Wt-dropzone-dragstyle {
+    z-index: 20000;
 }

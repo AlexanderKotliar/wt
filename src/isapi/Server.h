@@ -7,8 +7,11 @@
 #ifndef SERVER_H_
 #define SERVER_H_
 
-#include <string>
+#include <condition_variable>
 #include <map>
+#include <mutex>
+#include <string>
+#include <thread>
 
 #include "Configuration.h"
 
@@ -23,6 +26,9 @@ class IsapiServer {
 
 public:
   ~IsapiServer();
+
+  // to be called from the server thread when the WServer is properly started
+  void setServerStarted();
 
   void serverEntry();
 
@@ -53,10 +59,14 @@ public:
 private:
   static IsapiServer *instance_;
 
-  boost::thread serverThread_;
+  std::thread serverThread_;
 
-  boost::mutex queueMutex_;
-  boost::condition_variable queueCond_;
+  std::mutex startedMutex_;
+  std::condition_variable startedCondition_;
+  bool started_;
+
+  std::mutex queueMutex_;
+  std::condition_variable queueCond_;
   std::deque<IsapiRequest *> queue_;
 
   // Also protected by queueMuex_;

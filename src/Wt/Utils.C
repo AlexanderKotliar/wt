@@ -17,12 +17,14 @@
 #include <winsock2.h>
 #endif
 
-#include "Wt/WLogger"
-#include "Wt/Utils"
+#include "Wt/WLogger.h"
+#include "Wt/Utils.h"
 #include "DomElement.h"
 #include "md5.h"
 #include "base64.h"
 #include "ImageUtils.h"
+
+#include <cstring>
 
 extern "C" {
   #include "sha1.h"
@@ -150,7 +152,9 @@ std::string hexDecode(const std::string& data)
 std::string htmlEncode(const std::string& text, WFlags<HtmlEncodingFlag> flags)
 {
   std::string result = text;
-  WWebWidget::escapeText(result, flags & EncodeNewLines ? true : false);
+  WWebWidget::escapeText(result, 
+			 (flags.test(HtmlEncodingFlag::EncodeNewLines)) ? 
+			 true : false);
   return result;
 }
 
@@ -175,7 +179,7 @@ std::string urlDecode(const std::string &text)
       result << ' ';
     } else if (c == '%' && i + 2 < text.length()) {
       std::string h = text.substr(i + 1, 2);
-      char *e = 0;
+      char *e = nullptr;
       int hval = std::strtol(h.c_str(), &e, 16);
 
       if (*e == 0) {
@@ -210,6 +214,53 @@ std::string createDataUrl(std::vector<unsigned char>& data, std::string mimeType
   std::string url = "data:"+mimeType+";"+"base64,";
   std::string datab64 = base64Encode(std::string(data.begin(), data.end()));
   return url+datab64;
+}
+
+std::string hmac(const std::string& text,
+                 const std::string& key,
+                 std::string (*hashfunction)(const std::string&),
+                 size_t blocksize,
+                 size_t keysize)
+{
+  unsigned char ipad[256];
+  unsigned char opad[256];
+
+  std::memset(ipad, 0, sizeof(unsigned char) * blocksize);
+
+  if (key.size() > blocksize) {
+    std::memcpy(ipad, (unsigned char*) hashfunction(key).c_str(), keysize);
+  }
+  else {
+    keysize = key.size();
+    std::memcpy(ipad, (unsigned char*) key.c_str(), keysize);
+  }
+  std::memcpy(opad, ipad, blocksize);
+
+  for (size_t i=0; i<blocksize; ++i) {
+    ipad[i] ^= 0x36;
+    opad[i] ^= 0x5c;
+  }
+
+  return hashfunction(std::string((char*) opad,blocksize)
+       + hashfunction(std::string((char*) ipad,blocksize) + text));
+}
+
+std::string hmac_md5(const std::string& text, const std::string& key)
+{
+  return hmac(text,
+              key,
+              &md5,
+              64,
+              16);
+}
+
+std::string hmac_sha1(const std::string& text, const std::string& key)
+{
+  return hmac(text,
+              key,
+              &sha1,
+              64,
+              20);
 }
 
 }

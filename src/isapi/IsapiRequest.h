@@ -25,7 +25,7 @@ public:
 
   virtual bool isSynchronous() const;
 
-  virtual void flush(ResponseState state = ResponseDone,
+  virtual void flush(ResponseState state = ResponseState::ResponseDone,
 		     const WriteCallback& callback = WriteCallback());
 
   // Sends a simple text reply
@@ -37,7 +37,7 @@ public:
 
   virtual void setStatus(int status);
 
-  virtual void setContentLength(boost::intmax_t length);
+  virtual void setContentLength(::int64_t length);
 
   virtual void setContentType(const std::string& value);
 
@@ -46,6 +46,8 @@ public:
   virtual void setRedirect(const std::string& url);
 
   virtual const char *headerValue(const char *name) const;
+
+  virtual std::vector<Wt::Http::Message::Header> headers() const;
 
   virtual const char *envValue(const char *name) const;
 
@@ -98,7 +100,7 @@ private:
   std::string requestFileName_;
 
   bool chunking_;
-  boost::intmax_t contentLength_;
+  std::int64_t contentLength_;
   bool headerSent_;
   void sendHeader();
   enum {HTTP_1_0, HTTP_1_1} version_;

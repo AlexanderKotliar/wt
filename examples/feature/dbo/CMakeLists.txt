@@ -1,4 +1,4 @@
-SET(tutorial_libs wtdbo wtdbosqlite3)
+SET(tutorial_libs ${EXAMPLES_DBO_LIBS})
 
 #IF (MULTI_THREADED)
 #  SET(tutorial_libs ${tutorial_libs} ${BOOST_THREAD_LIB})
@@ -31,6 +31,17 @@ TARGET_LINK_LIBRARIES(dbo-tutorial7 ${tutorial_libs})
 
 ADD_EXECUTABLE(dbo-tutorial8  tutorial8.C)
 TARGET_LINK_LIBRARIES(dbo-tutorial8 ${tutorial_libs})
+
+IF(MSVC)
+	SET_TARGET_PROPERTIES(dbo-tutorial1 PROPERTIES FOLDER "dbo/examples")
+	SET_TARGET_PROPERTIES(dbo-tutorial2 PROPERTIES FOLDER "dbo/examples")
+	SET_TARGET_PROPERTIES(dbo-tutorial3 PROPERTIES FOLDER "dbo/examples")
+	SET_TARGET_PROPERTIES(dbo-tutorial4 PROPERTIES FOLDER "dbo/examples")
+	SET_TARGET_PROPERTIES(dbo-tutorial5 PROPERTIES FOLDER "dbo/examples")
+	SET_TARGET_PROPERTIES(dbo-tutorial6 PROPERTIES FOLDER "dbo/examples")
+	SET_TARGET_PROPERTIES(dbo-tutorial7 PROPERTIES FOLDER "dbo/examples")
+	SET_TARGET_PROPERTIES(dbo-tutorial8 PROPERTIES FOLDER "dbo/examples")
+ENDIF(MSVC)
 
 INCLUDE_DIRECTORIES(${WT_SOURCE_DIR}/src)
 

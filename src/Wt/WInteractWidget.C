@@ -3,13 +3,13 @@
  *
  * See the LICENSE file for terms of use.
  */
-#include "Wt/WInteractWidget"
-#include "Wt/WApplication"
-#include "Wt/WEnvironment"
-#include "Wt/WFormWidget"
-#include "Wt/WPopupWidget"
-#include "Wt/WServer"
-#include "Wt/WTheme"
+#include "Wt/WInteractWidget.h"
+#include "Wt/WApplication.h"
+#include "Wt/WEnvironment.h"
+#include "Wt/WFormWidget.h"
+#include "Wt/WPopupWidget.h"
+#include "Wt/WServer.h"
+#include "Wt/WTheme.h"
 
 #include "Configuration.h"
 #include "DomElement.h"
@@ -46,23 +46,19 @@ const char *WInteractWidget::GESTURE_START_SIGNAL = "gesturestart";
 const char *WInteractWidget::GESTURE_CHANGE_SIGNAL = "gesturechange";
 const char *WInteractWidget::GESTURE_END_SIGNAL = "gestureend";
 
-WInteractWidget::WInteractWidget(WContainerWidget *parent)
-  : WWebWidget(parent),
-    dragSlot_(0),
-    mouseOverDelay_(0)
+WInteractWidget::WInteractWidget()
+  : mouseOverDelay_(0)
 { }
 
 WInteractWidget::~WInteractWidget()
-{
-  delete dragSlot_;
-}
+{ }
 
 void WInteractWidget::setPopup(bool popup)
 {
   if (popup && wApp->environment().ajax()) {
     clicked().connect
       ("function(o,e) { "
-       " if (" WT_CLASS ".WPopupWidget) {"
+       " if (" WT_CLASS ".WPopupWidget && $.data(o,'popup')) {"
            WT_CLASS ".WPopupWidget.popupClicked = o;"
            "$(document).trigger('click', e);"
            WT_CLASS ".WPopupWidget.popupClicked = null;"
@@ -142,7 +138,8 @@ EventSignal<WMouseEvent>& WInteractWidget::mouseDragged()
 EventSignal<WMouseEvent>& WInteractWidget::mouseWheel()
 {
   if (WApplication::instance()->environment().agentIsIElt(9) ||
-      WApplication::instance()->environment().agent() == WEnvironment::Edge) {
+      WApplication::instance()->environment().agent() 
+      == UserAgent::Edge) {
     return *mouseEventSignal(MOUSE_WHEEL_SIGNAL, true);
   } else {
     return *mouseEventSignal(WHEEL_SIGNAL, true);
@@ -365,6 +362,84 @@ void WInteractWidget::updateDom(DomElement& element, bool all)
 
     element.setEvent("mousemove", actions);
   }
+  /*
+   * -- allow computation of dragged touch distance
+   */
+  EventSignal<WTouchEvent> *touchStart
+    = touchEventSignal(TOUCH_START_SIGNAL, false);
+  EventSignal<WTouchEvent> *touchEnd
+    = touchEventSignal(TOUCH_END_SIGNAL, false);
+  EventSignal<WTouchEvent> *touchMove
+    = touchEventSignal(TOUCH_MOVE_SIGNAL, false);
+
+  bool updateTouchMove
+    = (touchMove && touchMove->needsUpdate(all));
+
+  bool updateTouchStart
+    = (touchStart && touchStart->needsUpdate(all))
+    || updateTouchMove;
+
+  bool updateTouchEnd
+    = (touchEnd && touchEnd->needsUpdate(all))
+    || updateTouchMove;
+
+  if (updateTouchStart) {
+    /*
+     * when we have a touchStart event, we also need a touchEnd event
+     * to be able to compute dragDX/Y.
+     *
+     * When we have:
+     *  - a touchStart + (touchMove or touchEnd),
+     * we need to capture everything after on touch start, and keep track of the
+     * down button if we have a touchMove 
+     */
+    WStringStream js;
+
+    js << CheckDisabled;
+
+    if (touchEnd && touchEnd->isConnected())
+      js << app->javaScriptClass() << "._p_.saveDownPos(event);";
+
+    if ((touchStart && touchStart->isConnected()
+	    && ((touchEnd && touchEnd->isConnected())
+		|| (touchMove && touchMove->isConnected()))))
+      js << WT_CLASS ".capture(this);";
+
+    if (touchStart) {
+      js << touchStart->javaScript();
+      element.setEvent("touchstart", js.str(),
+		       touchStart->encodeCmd(), touchStart->isExposedSignal());
+      touchStart->updateOk();
+    } else
+      element.setEvent("touchstart", js.str(), std::string(), false);
+  }
+
+  if (updateTouchEnd) {
+    WStringStream js;
+
+    /*
+     * when we have a touchMove, we need to keep track
+     * of removing touch.
+     */
+    js << CheckDisabled;
+
+    if (touchEnd) {
+      js << touchEnd->javaScript();
+      element.setEvent("touchend", js.str(),
+		         touchEnd->encodeCmd(), touchEnd->isExposedSignal());
+      touchEnd->updateOk();
+    } else
+      element.setEvent("touchend", js.str(), std::string(), false);
+  }
+
+  if (updateTouchMove) {
+    
+    if (touchMove) {
+      element.setEvent("touchmove", touchMove->javaScript(),
+			touchMove->encodeCmd(), touchMove->isExposedSignal());
+      touchMove->updateOk();
+    }
+  }
 
   /*
    * -- mix mouseClick and mouseDblClick events in mouseclick since we
@@ -527,7 +602,7 @@ void WInteractWidget::setMouseOverDelay(int delay)
   EventSignal<WMouseEvent> *mouseOver
     = mouseEventSignal(MOUSE_OVER_SIGNAL, false);
   if (mouseOver)
-    mouseOver->senderRepaint();
+    mouseOver->ownerRepaint();
 }
 
 int WInteractWidget::mouseOverDelay() const
@@ -540,11 +615,7 @@ void WInteractWidget::updateEventSignals(DomElement& element, bool all)
   EventSignalList& other = eventSignals();
 
   for (EventSignalList::iterator i = other.begin(); i != other.end(); ++i) {
-#ifndef WT_NO_BOOST_INTRUSIVE
-    EventSignalBase& s = *i;
-#else
     EventSignalBase& s = **i;
-#endif
 
     if (s.name() == WInteractWidget::M_CLICK_SIGNAL
 	&& flags_.test(BIT_REPAINT_TO_AJAX))
@@ -559,11 +630,7 @@ void WInteractWidget::propagateRenderOk(bool deep)
   EventSignalList& other = eventSignals();
 
   for (EventSignalList::iterator i = other.begin(); i != other.end(); ++i) {
-#ifndef WT_NO_BOOST_INTRUSIVE
-    EventSignalBase& s = *i;
-#else
     EventSignalBase& s = **i;
-#endif
     s.updateOk();
   }
 
@@ -603,10 +670,10 @@ void WInteractWidget::setDraggable(const std::string& mimeType,
 				   WWidget *dragWidget, bool isDragWidgetOnly,
 				   WObject *sourceObject)
 {
-  if (dragWidget == 0)
+  if (dragWidget == nullptr)
     dragWidget = this;
 
-  if (sourceObject == 0)
+  if (sourceObject == nullptr)
     sourceObject = this;
 
   if (isDragWidgetOnly) {
@@ -620,20 +687,44 @@ void WInteractWidget::setDraggable(const std::string& mimeType,
   setAttributeValue("dsid", app->encodeObject(sourceObject));
 
   if (!dragSlot_) {
-    dragSlot_ = new JSlot();
+    dragSlot_.reset(new JSlot());
     dragSlot_->setJavaScript("function(o,e){" + app->javaScriptClass()
 			     + "._p_.dragStart(o,e);" + "}");
   }
 
+  if (!dragTouchSlot_) {
+    dragTouchSlot_.reset(new JSlot());
+    dragTouchSlot_->setJavaScript("function(o,e){" + app->javaScriptClass()
+				+ "._p_.touchStart(o,e);" + "}");
+  }
+
+  if (!dragTouchEndSlot_) {
+    dragTouchEndSlot_.reset(new JSlot());
+    dragTouchEndSlot_->setJavaScript("function(){" + app->javaScriptClass()
+				+ "._p_.touchEnded();" + "}");
+  }
+
   mouseWentDown().connect(*dragSlot_);
+  touchStarted().connect(*dragTouchSlot_);
+  touchStarted().preventDefaultAction(true);
+  touchEnded().connect(*dragTouchEndSlot_);
 }
 
 void WInteractWidget::unsetDraggable()
 {
   if (dragSlot_) {
     mouseWentDown().disconnect(*dragSlot_);
-    delete dragSlot_;
-    dragSlot_ = 0;
+    dragSlot_.reset();
+  }
+
+  if (dragTouchSlot_) {
+    touchStarted().disconnect(*dragTouchSlot_);
+    dragTouchSlot_.reset();
+  }
+
+  if (dragTouchEndSlot_) {
+    touchEnded().disconnect(*dragTouchEndSlot_);
+    dragTouchEndSlot_.reset();
   }
 }
 

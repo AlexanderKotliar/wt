@@ -4,9 +4,7 @@
  * See the LICENSE file for terms of use.
  */
 
-#include <boost/lexical_cast.hpp>
-
-#include "Wt/WLogger"
+#include "Wt/WLogger.h"
 
 #include "WebSession.h"
 #include "WebSocketMessage.h"
@@ -24,8 +22,9 @@ WebSocketMessage::WebSocketMessage(WebSession *session)
 void WebSocketMessage::flush(ResponseState state,
 			     const WriteCallback& callback)
 {
-  if (state != ResponseDone)
-    error("flush(" + boost::lexical_cast<std::string>(state) + ") expected");
+  if (state != ResponseState::ResponseDone)
+    error("flush(" + std::to_string(static_cast<unsigned int>(state)) 
+	  + ") expected");
 
   session_->pushUpdates();
 
@@ -152,6 +151,11 @@ Wt::WSslInfo *WebSocketMessage::sslInfo() const
 const char *WebSocketMessage::headerValue(const char *name) const
 {
   return webSocket()->headerValue(name);
+}
+
+std::vector<Wt::Http::Message::Header> WebSocketMessage::headers() const
+{
+  return webSocket()->headers();
 }
 
 void WebSocketMessage::error(const std::string& msg) const

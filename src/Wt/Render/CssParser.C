@@ -111,16 +111,16 @@ struct DoubleWithoutExponent : qi::real_policies<double>
 };
 
 ///////////////////////////////////////////////////////////////////////////////
-///// CssGrammer                                                          /////
+///// CssGrammar                                                          /////
 ///////////////////////////////////////////////////////////////////////////////
 
 template <typename Iterator>
-class CssGrammer : qi::grammar<Iterator, CssSkipper<Iterator> >
+class CssGrammar : qi::grammar<Iterator, CssSkipper<Iterator> >
 {
   public:
-    typedef CssGrammer<Iterator > Self;
+    typedef CssGrammar<Iterator > Self;
 
-    CssGrammer();
+    CssGrammar();
     bool parse(Iterator begin, Iterator end, StyleSheetImpl* s);
 
   //private:
@@ -168,8 +168,8 @@ struct ErrorReporting
   typedef void result_type;
 #endif
 
-  ErrorReporting(CssGrammer< Iterator >* grammer)
-    : grammer_(grammer)
+  ErrorReporting(CssGrammar< Iterator >* grammar)
+    : grammar_(grammar)
   {}
 
   template< typename Info >
@@ -179,12 +179,12 @@ struct ErrorReporting
                   const std::string& filename,
                   fs_error_tag ) const
   {
-    int line = std::count_if(grammer_->begin_, errorPos,
+    int line = std::count_if(grammar_->begin_, errorPos,
                              boost::is_any_of("\n\r\f")) + 1;
 
     Iterator lastNewLine = std::find_if(
           std::reverse_iterator< Iterator >(errorPos),
-          std::reverse_iterator< Iterator >(grammer_->begin_),
+          std::reverse_iterator< Iterator >(grammar_->begin_),
           boost::is_any_of("\n\r\f")).base();
 
     unsigned int column = std::distance(lastNewLine, errorPos);
@@ -196,10 +196,10 @@ struct ErrorReporting
         << filename << ":" << line << ":" << column
         << ": Expecting " << info << " before \""
         << s << "\"" << std::endl;
-    grammer_->error_ += ss.str();
+    grammar_->error_ += ss.str();
   }
 
-  CssGrammer< Iterator >* grammer_;
+  CssGrammar< Iterator >* grammar_;
 };
 
 template< typename T >
@@ -211,8 +211,8 @@ std::vector< T >& operator+=( std::vector< T >& target,
 }
 
 template<typename Iterator>
-CssGrammer<Iterator>::CssGrammer()
- : CssGrammer::base_type(rulesetArray_, "CSS")
+CssGrammar<Iterator>::CssGrammar()
+ : CssGrammar::base_type(rulesetArray_, "CSS")
 {
   using qi::lit;
   using qi::double_;
@@ -372,13 +372,13 @@ CssGrammer<Iterator>::CssGrammer()
   on_error<qi::fail>
   (
     rulesetArray_,
-    error_report(qi::_2, qi::_3, qi::_4, "styleSheetText()", fs_error_tag())
+    error_report(qi::_2, qi::_3, qi::_4, phoenix::val("styleSheetText()"), fs_error_tag())
   );
 
 }
 
 template <typename Iterator>
-bool CssGrammer<Iterator>::parse(Iterator begin,
+bool CssGrammar<Iterator>::parse(Iterator begin,
                                  Iterator end,
                                  StyleSheetImpl* s)
 {
@@ -399,14 +399,14 @@ bool CssGrammer<Iterator>::parse(Iterator begin,
 }
 
 template <typename Iterator>
-void CssGrammer<Iterator>::pushRulesetArray()
+void CssGrammar<Iterator>::pushRulesetArray()
 {
   s_->rulesetArray_ += currentRuleset_;
   currentRuleset_.clear();
 }
 
 template <typename Iterator>
-void CssGrammer<Iterator>::setCurrentSelectors
+void CssGrammar<Iterator>::setCurrentSelectors
                                (const std::vector<SelectorImpl>& selectors)
 {
   BOOST_FOREACH(const SelectorImpl& s, selectors)
@@ -418,7 +418,7 @@ void CssGrammer<Iterator>::setCurrentSelectors
 }
 
 template <typename Iterator>
-void CssGrammer<Iterator>::addDeclaration(const std::string& property,
+void CssGrammar<Iterator>::addDeclaration(const std::string& property,
                                           const Term& term)
 {
   BOOST_FOREACH(RulesetImpl& r, currentRuleset_)
@@ -426,7 +426,7 @@ void CssGrammer<Iterator>::addDeclaration(const std::string& property,
 }
 
 template <typename Iterator>
-void CssGrammer<Iterator>::setDeclarationString(const std::string& rawstring)
+void CssGrammar<Iterator>::setDeclarationString(const std::string& rawstring)
 {
   BOOST_FOREACH(RulesetImpl& r, currentRuleset_)
     r.block_.declarationString_ = rawstring;
@@ -442,48 +442,46 @@ CssParser::CssParser()
 {
 }
 
-StyleSheet* CssParser::parse(const WString& styleSheetContents)
+std::unique_ptr<StyleSheet> CssParser::parse(const WString& styleSheetContents)
 {
   error_.clear();
-  StyleSheetImpl* style = new StyleSheetImpl();
-  CssGrammer<std::string::const_iterator> cssGrammer;
+  std::unique_ptr<StyleSheetImpl> style = cpp14::make_unique<StyleSheetImpl>();
+  CssGrammar<std::string::const_iterator> cssGrammar;
   std::string s = styleSheetContents.toUTF8();
-  bool success = cssGrammer.parse(s.begin(), s.end(), style);
+  bool success = cssGrammar.parse(s.begin(), s.end(), style.get());
   if (!success) {
-    error_ = cssGrammer.error_;
-    delete style;
-    return 0;
+    error_ = cssGrammar.error_;
+    return nullptr;
   } else {
     error_ = "";
-    return style;
+    return std::unique_ptr<StyleSheet>(std::move(style));
   }
 }
 
-StyleSheet* CssParser::parseFile(const WString& filename)
+std::unique_ptr<StyleSheet> CssParser::parseFile(const WString& filename)
 {
   error_.clear();
   boost::spirit::classic::file_iterator<> first(filename.toUTF8());
   if(!first)
   {
     error_ = "file \"" + filename.toUTF8() + "\" not found";
-    return 0;
+    return nullptr;
   }
   boost::spirit::classic::file_iterator<> last = first.make_end();
 
 
-  StyleSheetImpl* style = new StyleSheetImpl();
-  CssGrammer<boost::spirit::classic::file_iterator<> > cssGrammer;
-  bool success = cssGrammer.parse(first, last, style);
+  std::unique_ptr<StyleSheetImpl> style = cpp14::make_unique<StyleSheetImpl>();
+  CssGrammar<boost::spirit::classic::file_iterator<> > cssGrammar;
+  bool success = cssGrammar.parse(first, last, style.get());
   if(!success)
   {
-    error_ = cssGrammer.error_;
-    delete style;
-    return 0;
+    error_ = cssGrammar.error_;
+    return nullptr;
   }
   else
   {
     error_ = "";
-    return style;
+    return std::unique_ptr<StyleSheet>(std::move(style));
   }
 }
 
@@ -503,22 +501,22 @@ namespace Wt {
 CssParser::CssParser()
 { }
 
-StyleSheet* CssParser::parse(const WString& styleSheetContents)
+std::unique_ptr<StyleSheet> CssParser::parse(const WString& styleSheetContents)
 {
   error_.clear();
 
   if (styleSheetContents.empty())
-    return new StyleSheetImpl();
+    return cpp14::make_unique<StyleSheetImpl>();
   else {
     error_ = "Wt::Render: CSSParser requires Boost 1.47 or later";
-    return 0;
+    return nullptr;
   }
 }
 
-StyleSheet* CssParser::parseFile(const WString& filename)
+std::unique_ptr<StyleSheet> CssParser::parseFile(const WString& filename)
 {
   error_ = "Wt::Render: CSSParser requires Boost 1.47 or later";
-  return 0;
+  return nullptr;
 }
 
 std::string CssParser::getLastError() const

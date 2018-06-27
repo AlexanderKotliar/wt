@@ -11,9 +11,9 @@
 #include <vector>
 #include <set>
 
-#include "Wt/WDateTime"
-#include "Wt/WEnvironment"
-#include "Wt/WStatelessSlot"
+#include "Wt/WDateTime.h"
+#include "Wt/WEnvironment.h"
+#include "Wt/WStatelessSlot.h"
 
 namespace Wt {
 
@@ -78,15 +78,32 @@ public:
 
   void updateLayout() { updateLayout_ = true; }
 
-  bool ackUpdate(int updateId);
+  enum AckState {
+    CorrectAck,
+    ReasonableAck,
+    BadAck
+  };
+  
+  AckState ackUpdate(int updateId);
 
   void streamRedirectJS(WStringStream& out, const std::string& redirect);
 
   bool checkResponsePuzzle(const WebRequest& request);
 
+  bool jsSynced() const;
+
   void setJSSynced(bool invisibleToo);
 
   void setStatelessSlotNotStateless() { currentStatelessSlotIsActuallyStateless_ = false; }
+
+  // Keep stubbed widget in vector marking it as stubbed,
+  // so we don't discard the JavaScript effects of a stateless
+  // slot executed before the widget was unstubbed.
+  void markAsStubbed(const WWidget *widget);
+
+  // Check whether the given object (which should be a widget)
+  // was marked as stubbed.
+  bool wasStubbed(const WObject *widget) const;
 
 private:
   struct CookieValue {
@@ -117,6 +134,14 @@ private:
   bool formObjectsChanged_;
   bool updateLayout_;
 
+  std::vector<int> wsRequestsToHandle_;
+  bool multiSessionCookieUpdateNeeded_;
+
+  // A vector of all widgets that were stubbed.
+  // Kept around until the first event after they're unstubbed,
+  // then the vector is cleared.
+  std::vector<const WWidget*> stubbedWidgets_;
+
   void setHeaders(WebResponse& request, const std::string mimeType);
   void setCaching(WebResponse& response, bool allowCache);
 
@@ -132,14 +157,14 @@ private:
 
   void collectJavaScriptUpdate(WStringStream& out);
   void loadStyleSheet(WStringStream& out, WApplication *app,
-		      const WCssStyleSheet& sheet);
+		      const WLinkedCssStyleSheet& sheet);
   void loadStyleSheets(WStringStream& out, WApplication *app);
   void removeStyleSheets(WStringStream& out, WApplication *app);
   int loadScriptLibraries(WStringStream& out, WApplication *app,
 			  int count = -1);
   void updateLoadIndicator(WStringStream& out, WApplication *app, bool all);
   void renderSetServerPush(WStringStream& out);
-  void renderStyleSheet(WStringStream& out, const WCssStyleSheet& sheet,
+  void renderStyleSheet(WStringStream& out, const WLinkedCssStyleSheet& sheet,
 			WApplication *app);
 
   std::string createFormObjectsList(WApplication *app);
@@ -166,8 +191,18 @@ private:
 
   std::string safeJsStringLiteral(const std::string& value);
 
+  void addWsRequestId(int wsRqId);
+  void renderWsRequestsDone(WStringStream &out);
+
+  void updateMultiSessionCookie(const WebRequest &request);
+  void renderMultiSessionCookieUpdate(WStringStream &out);
+
+  // If we're already past the loading phase, and the first non-load
+  // event was handled, we can clear the vector of stubbed widgets
+  void clearStubbedWidgets();
+
 public:
-  std::string       learn(WStatelessSlot* slot);
+  virtual std::string learn(WStatelessSlot* slot) final override;
 
   friend class WApplication;
   friend class WebSession;

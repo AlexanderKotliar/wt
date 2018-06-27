@@ -10,6 +10,7 @@
 #include <Wt/WDllDefs.h>
 
 #include <iostream>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -18,7 +19,7 @@ namespace Wt {
 
 #undef WT_API
 #define WT_API
-#include "../WStringStream"
+#include "../WStringStream.h"
 
   }
 }

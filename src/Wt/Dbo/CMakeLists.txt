@@ -31,28 +31,42 @@ IF(ENABLE_LIBWTDBO)
     StringStream.C
   )
 
+  IF(HAVE_UNWIND)
+    TARGET_LINK_LIBRARIES(wtdbo PRIVATE ${UNWIND_LIBRARIES})
+  ENDIF(HAVE_UNWIND)
+
   IF(MSVC)
     #win32 links automatically against boost libs; specifying too much causes
     #trouble
     IF(MULTI_THREADED_BUILD)
-      TARGET_LINK_LIBRARIES(wtdbo ${CMAKE_THREAD_LIBS_INIT})
+      TARGET_LINK_LIBRARIES(wtdbo
+                            PRIVATE
+                            ${WT_THREAD_LIB})
     ENDIF(MULTI_THREADED_BUILD)
   ELSE(MSVC)
     IF(MULTI_THREADED_BUILD)
-      TARGET_LINK_LIBRARIES(wtdbo ${BOOST_THREAD_LIB} ${BOOST_SYSTEM_LIB} ${CMAKE_THREAD_LIBS_INIT} ${BOOST_DT_LIB})
-    ELSE(MULTI_THREADED_BUILD)
-      TARGET_LINK_LIBRARIES(wtdbo ${BOOST_DT_LIB})
+      TARGET_LINK_LIBRARIES(wtdbo
+                            PRIVATE
+                              ${BOOST_THREAD_LIB}
+                              ${BOOST_SYSTEM_LIB}
+                              ${WT_THREAD_LIB})
     ENDIF(MULTI_THREADED_BUILD)
   ENDIF(MSVC)
 
   INSTALL(TARGETS wtdbo
+      EXPORT wt-target-dbo
       RUNTIME DESTINATION bin
       LIBRARY DESTINATION ${LIB_INSTALL_DIR}
       ARCHIVE DESTINATION ${LIB_INSTALL_DIR})
 
+  INSTALL(EXPORT wt-target-dbo
+          DESTINATION ${CMAKE_INSTALL_DIR}/wt
+          NAMESPACE Wt::)
+
   SET_TARGET_PROPERTIES(
     wtdbo
   PROPERTIES
+    EXPORT_NAME Dbo
     VERSION ${VERSION_SERIES}.${VERSION_MAJOR}.${VERSION_MINOR}
     SOVERSION ${WTDBO_SOVERSION}
     DEBUG_POSTFIX ${DEBUG_LIB_POSTFIX}
@@ -63,19 +77,19 @@ IF(ENABLE_LIBWTDBO)
     PROPERTIES
       COMPILE_FLAGS "${BUILD_PARALLEL} /wd4251 /wd4275 /wd4267"
     )
+	SET_TARGET_PROPERTIES(wtdbo PROPERTIES FOLDER "dbo")
   ENDIF(MSVC)
 
   SUBDIRS(backend)
 
   INSTALL_FILES(/include/Wt/Dbo "^[^.]+\\.h$")
-  INSTALL_FILES(/include/Wt/Dbo "^[^b][^.]+$")
-  INSTALL_FILES(/include/Wt/Dbo "^[^b.][^.]+$")
+  IF(INSTALL_EXTENSIONLESS_HEADERS)
+    INSTALL_FILES(/include/Wt/Dbo "^[^b][^.]+$")
+    INSTALL_FILES(/include/Wt/Dbo "^[^b.][^.]+$")
+  ENDIF(INSTALL_EXTENSIONLESS_HEADERS)
   INSTALL_FILES(/include/Wt FILES ${WCONFIG_H_PATH})
 
   IF (ASCIIDOC_FOUND)
-    IF(NOT WIN32)
-      ADD_CUSTOM_TARGET(doc)
-    ENDIF(NOT WIN32)
     ASCIIDOC_FILE(dbo-tutorial
       ${CMAKE_SOURCE_DIR}/doc/tutorial/dbo.doc
       ${CMAKE_SOURCE_DIR}/doc/tutorial/dbo.html)

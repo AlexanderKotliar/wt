@@ -7,17 +7,18 @@
 #include "WebUtils.h"
 #include "DomElement.h"
 #include "3rdparty/rapidxml/rapidxml.hpp"
-#include "Wt/WException"
-#include "Wt/WString"
-#include "Wt/Utils"
+#include "Wt/WException.h"
+#include "Wt/WString.h"
+#include "Wt/Utils.h"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/version.hpp>
-#include <boost/scoped_array.hpp>
 
 #include <ctype.h>
 #include <stdio.h>
 #include <fstream>
+#include <iomanip>
+#include <cfloat>
 
 #ifdef WT_WIN32
 #include <windows.h>
@@ -254,10 +255,19 @@ static inline char *generic_double_to_str(double d, int precision, char *buf)
   using namespace boost::spirit::karma;
   char *p = buf;
   if (d != 0) {
-    if (precision <= 7)
-      generate(p, KarmaJavaScriptReal(), d);
-    else
-      generate(p, KarmaJavaScriptDouble(), d);
+      if (fabs(d) < DBL_MIN) {
+        std::stringstream ss;
+        ss.imbue(std::locale("C"));
+        ss << std::setprecision(precision) << d;
+        std::string str = ss.str();
+        memcpy(p, str.c_str(), str.length());
+        p += str.length();
+      } else {
+        if (precision <= 7)
+          generate(p, KarmaJavaScriptReal(), d);
+        else
+          generate(p, KarmaJavaScriptDouble(), d);
+      }
   }  else
     *p++ = '0';
   *p = '\0';
@@ -366,15 +376,6 @@ void inplaceUrlDecode(std::string &text)
   text.erase(j);
 }
 
-void split(SplitSet& tokens, const std::string &in, const char *sep,
-	   bool compress_adjacent_tokens)
-{
-    boost::split(tokens, in, boost::is_any_of(sep),
-		 compress_adjacent_tokens?
-		 boost::algorithm::token_compress_on:
-		 boost::algorithm::token_compress_off);
-}
-
 std::string EncodeHttpHeaderField(const std::string &fieldname,
                                   const WString &fieldValue)
 {
@@ -393,7 +394,7 @@ std::string readFile(const std::string& fname)
   int length = f.tellg();
   f.seekg(0, std::ios::beg);
   
-  boost::scoped_array<char> ftext(new char[length + 1]);
+  std::unique_ptr<char[]> ftext(new char[length + 1]);
   f.read(ftext.get(), length);
   ftext[length] = 0;
 
@@ -415,17 +416,71 @@ WString formatFloat(const WString &format, double value)
   delete[] buf;
 
   return result;
-
 }
 
-std::string splitEntryToString(SplitEntry se)
+long stol(const std::string& v)
 {
-#ifndef WT_TARGET_JAVA
-  return std::string(se.begin(), se.end());
-#else
-  return se;
-#endif
+  std::size_t pos;
+  auto result = std::stol(v, &pos);
+  if (pos != v.length())
+    throw std::invalid_argument("stol() of " + v + " failed");
+  return result;
 }
-  
+
+unsigned long stoul(const std::string& v)
+{
+  std::size_t pos;
+  auto result = std::stoul(v, &pos);
+  if (pos != v.length())
+    throw std::invalid_argument("stoul() of " + v + " failed");
+  return result;
+}
+
+long long stoll(const std::string& v)
+{
+  std::size_t pos;
+  auto result = std::stoll(v, &pos);
+  if (pos != v.length())
+    throw std::invalid_argument("stoul() of " + v + " failed");
+  return result;
+}
+
+unsigned long long stoull(const std::string& v)
+{
+  std::size_t pos;
+  auto result = std::stoull(v, &pos);
+  if (pos != v.length())
+    throw std::invalid_argument("stoull() of " + v + " failed");
+  return result;
+}
+
+int stoi(const std::string& v)
+{
+  std::size_t pos;
+  auto result = std::stoi(v, &pos);
+  if (pos != v.length())
+    throw std::invalid_argument("stoi() of " + v + " failed");
+  return result;
+}
+
+double stod(const std::string& v)
+{
+  std::size_t pos;
+  auto result = std::stod(v, &pos);
+  if (pos != v.length())
+    throw std::invalid_argument("stod() of " + v + " failed");
+  return result;
+}
+
+float stof(const std::string& v)
+{
+  std::size_t pos;
+  auto result = std::stof(v, &pos);
+  if (pos != v.length())
+    throw std::invalid_argument("stof() of " + v + " failed");
+  return result;
+}
+
+
   }
 }

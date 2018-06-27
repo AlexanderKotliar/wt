@@ -7,7 +7,7 @@
 #ifndef WT_ESCAPE_OSTREAM_H_
 #define WT_ESCAPE_OSTREAM_H_
 
-#include <Wt/WStringStream>
+#include <Wt/WStringStream.h>
 
 namespace Wt {
 
@@ -16,7 +16,7 @@ class WT_API EscapeOStream
 public:
   enum RuleSet { Empty = 0, HtmlAttribute = 1,
 		 JsStringLiteralSQuote = 2, JsStringLiteralDQuote = 3, 
-                 PlainText = 4, PlainTextNewLines = 5 };
+                 Plain = 4, PlainTextNewLines = 5 };
 
   EscapeOStream();
   EscapeOStream(std::ostream& sink);
@@ -33,22 +33,17 @@ public:
   void append(const std::string& s, const EscapeOStream& rules);
   void append(const char *s, std::size_t len);
 
-#ifndef WT_TARGET_JAVA
-  /*
-   * Should not be implemented but is needed to support the specialization
-   * for string literals !
-   */
-  template <typename T>
-  inline EscapeOStream& operator<< (T t);
-
-  template <std::size_t N>
-    EscapeOStream& operator<< (const char (&s)[N]) {
-    append(s, N-1); return *this; 
-  }
-#endif // WT_TARGET_JAVA
-
   EscapeOStream& operator<< (char);
-  EscapeOStream& operator<< (char *s);
+  EscapeOStream& operator<< (const char *s)
+  {
+    if (c_special_ == 0)
+      stream_ << s;
+    else
+      put(s, *this);
+
+    return *this;
+  }
+
   EscapeOStream& operator<< (const std::string& s);
   EscapeOStream& operator<< (int);
   EscapeOStream& operator<< (long long);

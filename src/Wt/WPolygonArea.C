@@ -4,8 +4,8 @@
  * See the LICENSE file for terms of use.
  */
 
-#include "Wt/WPolygonArea"
-#include "Wt/WPointF"
+#include "Wt/WPolygonArea.h"
+#include "Wt/WPointF.h"
 
 #include "DomElement.h"
 #include "WebUtils.h"
@@ -67,6 +67,8 @@ void WPolygonArea::setPoints(const std::vector<WPoint>& points)
 void WPolygonArea::setPoints(const std::vector<WPointF>& points)
 {
   points_ = points;
+
+  repaint();
 }
 #endif // WT_TARGET_JAVA
 

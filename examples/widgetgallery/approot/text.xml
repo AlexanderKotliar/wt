@@ -24,7 +24,7 @@
     </fieldset>
 
     <p>
-      Alternative to consider are a <a
+      Alternatives to consider are a <a
       href="#/layout/html-templates">WTemplate</a>, which puts widgets
       inside an HTML fragment using placeholder substitution, or a <a
       href="#/trees-tables/table">WTable</a> for organizing children
@@ -43,7 +43,7 @@
       usually does not have any visual aspect (although it can very
       well be styled to give it for example margin and borders). The
       widgets that are contained can be positioned using <a
-      href="#/layout/CSS">Cascading StyleSheets (CSS)</a> or a <a
+      href="#/layout/css">Cascading StyleSheets (CSS)</a> or a <a
       href="#/layout/layout-managers">Layout Manager</a>. CSS, which
       to most C++ developers will be a new technology, is worthwile
       learning as it will allow you to push many layout and style
@@ -1150,14 +1150,6 @@
     </div>
   </message>
 
-  <message id="form-field">
-    <div class="form-group">
-      <label class="control-label col-sm-2" for="${id:{2}}"> ${1} </label>
-      <div class="col-sm-5"> ${2} </div>
-      <div class="help-block col-sm-5"> ${3} </div>
-    </div>
-  </message>
-
   <message id="userForm-template">
     <legend>${title}</legend>
     <div class="form-horizontal">
@@ -1174,7 +1166,7 @@
       </div>
 
       <div class="form-group">
-        <label class="control-label col-sm-2"  for="${id:first-name}">
+        <label class="control-label col-sm-2"  for="${id:last-name}">
           Last name
         </label>
         <div class="col-sm-5">
@@ -1186,7 +1178,7 @@
       </div>
 
       <div class="form-group">
-        <label class="control-label col-sm-2"  for="${id:first-name}">
+        <label class="control-label col-sm-2"  for="${id:country}">
           Country
         </label>
         <div class="col-sm-5">
@@ -1198,7 +1190,7 @@
       </div>
 
       <div class="form-group">
-        <label class="control-label col-sm-2"  for="${id:first-name}">
+        <label class="control-label col-sm-2"  for="${id:city}">
           City
         </label>
         <div class="col-sm-5">
@@ -1210,7 +1202,7 @@
       </div>
 
       <div class="form-group">
-        <label class="control-label col-sm-2"  for="${id:first-name}">
+        <label class="control-label col-sm-2"  for="${id:birth}">
           Birth date
         </label>
         <div class="col-sm-5">
@@ -1222,7 +1214,7 @@
       </div>
 
       <div class="form-group">
-        <label class="control-label col-sm-2"  for="${id:first-name}">
+        <label class="control-label col-sm-2"  for="${id:children}">
           Children
         </label>
         <div class="col-sm-5">
@@ -1234,7 +1226,7 @@
       </div>
 
       <div class="form-group">
-        <label class="control-label col-sm-2"  for="${id:first-name}">
+        <label class="control-label col-sm-2"  for="${id:remarks}">
           Remarks
         </label>
         <div class="col-sm-5">
@@ -1922,8 +1914,7 @@
       use browser support for easy date entry.
     </p>
     <p>
-      By default the selected date is shown in the format "dd/MM/yyyy" as in
-      the first example. In the second example the format is set to
+      By default the selected date is shown in the format defined by your WLocale settings as in the first example. In the second example the format is set to
       "dd MM yyyy".
     </p>
 
@@ -2092,7 +2083,6 @@
       max-request-size</tt> (Kb). See the <a href=
       "http://www.webtoolkit.eu/wt/doc/reference/html/overview.html#config_general"
       target="blank">Library overview</a> for more details.
-      You can change this value with the function <tt>setFileTextSize()</tt>;
     </p>
     <p>
       Also check using <tt>canUpload()</tt> if <tt>upload()</tt> will schedule
@@ -2118,6 +2108,16 @@
         ${src FileUpload}
     </fieldset>
 
+    <h2>File Drop</h2>
+
+    <p>Try dropping files in the widget below. It accepts a maximum of 5 files. You can drop one or multiple files at a time.</p>
+    
+    <fieldset class="example">
+        <legend>Example</legend>
+        ${FileDrop}
+	${src FileDrop}
+    </fieldset>
+    
     <p><a href="#file-upload">Top</a></p>
 
   </message>

@@ -20,7 +20,7 @@
 #include <fstream>
 #include <boost/lexical_cast.hpp>
 #include "Request.h"
-#include "../Wt/Utils"
+#include "../Wt/Utils.h"
 
 namespace http {
 namespace server {
@@ -144,6 +144,12 @@ const std::string service_unavailable =
   "<body><h1>503 Service Unavailable</h1></body>"
   "</html>";
 const std::string service_unavailable_name ="503-service-unavailable.html";
+const std::string version_not_supported =
+  "<html>"
+  "<head><title>HTTP Version Not Supported</title></head>"
+  "<body><h1>505 HTTP Version Not Supported</h1></body>"
+  "</html>";
+const std::string version_not_supported_name = "505-version-not-supported.html";
 
 const std::string& toText(Reply::status_type status)
 {
@@ -189,6 +195,8 @@ const std::string& toText(Reply::status_type status)
     return bad_gateway;
   case Reply::service_unavailable:
     return service_unavailable;
+  case Reply::version_not_supported:
+    return version_not_supported;
   default:
     return internal_server_error;
   }
@@ -238,6 +246,8 @@ const std::string& toName(Reply::status_type status)
     return bad_gateway_name;
   case Reply::service_unavailable:
     return service_unavailable_name;
+  case Reply::version_not_supported:
+    return version_not_supported_name;
   default:
     return internal_server_error_name;
   }
@@ -285,8 +295,8 @@ void StockReply::reset(const Wt::EntryPoint *ep)
   assert(false);
 }
 
-bool StockReply::consumeData(Buffer::const_iterator begin,
-			     Buffer::const_iterator end,
+bool StockReply::consumeData(const char *begin,
+			     const char *end,
 			     Request::State state)
 {
   if (state != Request::Partial)

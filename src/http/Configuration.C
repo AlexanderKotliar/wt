@@ -5,11 +5,12 @@
  */
 
 #include "Wt/WConfig.h"
-#include "Wt/WLogger"
-#include "Wt/WServer"
+#include "Wt/WLogger.h"
+#include "Wt/WServer.h"
 
 #include "Configuration.h"
 #include "WebUtils.h"
+#include "StringUtils.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -57,6 +58,7 @@ Configuration::Configuration(Wt::WLogger& logger, bool silent)
     sslVerifyDepth_(1),
     sslCaCertificates_(),
     sslCipherList_(),
+    sslPreferServerCiphers_(false),
     sessionIdPrefix_(),
     accessLog_(),
     parentPort_(-1),
@@ -99,6 +101,14 @@ void Configuration::createOptions(po::options_description& options,
      "are within a deployment path), after a ';' \n\n"
      "e.g. --docroot=\".;/favicon.ico,/resources,/style\"\n")
 
+    ("resources-dir",
+     po::value<std::string>(&resourcesDir_)->default_value(resourcesDir_),
+     "path to the Wt resources folder. By default, Wt will look for its resources "
+     "in the resources subfolder of the docroot (see --docroot). If a file is not found "
+     "in that resources folder, this folder will be checked instead as a fallback. "
+     "If this option is omitted, then Wt will not use a fallback resources folder."
+     )
+
     ("approot",
      po::value<std::string>(&appRoot_)->default_value(appRoot_),
      "application root for private support files; if unspecified, the value "
@@ -123,7 +133,7 @@ void Configuration::createOptions(po::options_description& options,
 
     ("session-id-prefix",
      po::value<std::string>(&sessionIdPrefix_)->default_value(sessionIdPrefix_),
-     "prefix for session-id's (overrides wt_config.xml setting)")
+     "prefix for session IDs (overrides wt_config.xml setting)")
 
     ("pid-file,p",
      po::value<std::string>(&pidPath_)->default_value(pidPath_),
@@ -148,16 +158,46 @@ void Configuration::createOptions(po::options_description& options,
 
   po::options_description http("HTTP/WebSocket server options");
   http.add_options()
+    ("http-listen", po::value<std::vector<std::string> >(&httpListen_)->multitoken(),
+     "address/port pair to listen on. If no port is specified, 80 is used as the default, e.g. "
+     "127.0.0.1:8080 will cause the server to listen on port 8080 of 127.0.0.1 (localhost). "
+     "For IPv6, use square brackets, e.g. [::1]:8080 will cause the server to listen on port "
+     "8080 of [::1] (localhost). This argument can be repeated, e.g. "
+     "--http-listen 0.0.0.0:8080 --http-listen [0::0]:8080 will cause the server to listen on "
+     "port 8080 of all interfaces using IPv4 and IPv6. You must specify this option or --https-listen "
+     "at least once. The older style --http-address and --https-address can also be used for backwards "
+     "compatibility."
+#ifndef NO_RESOLVE_ACCEPT_ADDRESS
+     " "
+     "If a hostname is provided instead of an IP address, the server "
+     "will listen on all of the addresses (IPv4 and IPv6) that this hostname resolves to."
+#endif // NO_RESOLVE_ACCEPT_ADDRESS
+     )
     ("http-address", po::value<std::string>(),
-     "IPv4 (e.g. 0.0.0.0) or IPv6 Address (e.g. 0::0)")
+     "IPv4 (e.g. 0.0.0.0) or IPv6 Address (e.g. 0::0). You must specify either "
+     "--http-listen, --https-listen, --http-address, or --https-address.")
     ("http-port", po::value<std::string>(&httpPort_)->default_value(httpPort_),
      "HTTP port (e.g. 80)")
     ;
 
   po::options_description https("HTTPS/Secure WebSocket server options");
   https.add_options()
+    ("https-listen", po::value<std::vector<std::string> >(&httpsListen_)->multitoken(),
+     "address/port pair to listen on. If no port is specified, 80 is used as the default, e.g. "
+     "127.0.0.1:8080 will cause the server to listen on port 8080 of 127.0.0.1 (localhost). "
+     "For IPv6, use square brackets, e.g. [::1]:8080 will cause the server to listen on port "
+     "8080 of [::1] (localhost). This argument can be repeated, e.g. "
+     "--https-listen 0.0.0.0:8080 --https-listen [0::0]:8080 will cause the server to listen on "
+     "port 8080 of all interfaces using IPv4 and IPv6."
+#ifndef NO_RESOLVE_ACCEPT_ADDRESS
+     " "
+     "If a hostname is provided instead of an IP address, the server "
+     "will listen on all of the addresses (IPv4 and IPv6) that this hostname resolves to."
+#endif // NO_RESOLVE_ACCEPT_ADDRESS
+     )
     ("https-address", po::value<std::string>(),
-     "IPv4 (e.g. 0.0.0.0) or IPv6 Address (e.g. 0::0)")
+     "IPv4 (e.g. 0.0.0.0) or IPv6 Address (e.g. 0::0). You must specify either "
+     "--http-listen, --https-listen, --http-address, or --https-address.")
     ("https-port",
      po::value<std::string>(&httpsPort_)->default_value(httpsPort_),
      "HTTPS port (e.g. 443)")
@@ -198,6 +238,12 @@ void Configuration::createOptions(po::options_description& options,
      "layer, so see openssl for the proper syntax. When empty, the default "
      "acceptable cipher list will be used. Example cipher list string: "
      "\"TLSv1+HIGH:!SSLv2\"\n")
+    ("ssl-prefer-server-ciphers",
+     po::value<bool>(&sslPreferServerCiphers_)
+       ->default_value(sslPreferServerCiphers_),
+     "By default, the client's preference is used for determining the cipher "
+     "that is choosen during a SSL or TLS handshake. By enabling this option, "
+     "the server's preference will be used." )
     ;
 
   po::options_description hidden("Hidden options");
@@ -256,19 +302,15 @@ void Configuration::setOptions(int argc, char **argv,
     throw Wt::WServer::Exception("Exception of unknown type!\n");
   }
 
-#ifndef WT_WIN32
   for (int i = 0; i < argc; ++i) {
     options_.push_back(argv[i]);
   }
-#endif // !WT_WIN32
 }
 
-#ifndef WT_WIN32
 std::vector<std::string> Configuration::options() const
 {
   return options_;
 }
-#endif // !WT_WIN32
 
 void Configuration::readOptions(const po::variables_map& vm)
 {
@@ -342,7 +384,9 @@ void Configuration::readOptions(const po::variables_map& vm)
 
   if (vm.count("https-address")) {
     httpsAddress_ = vm["https-address"].as<std::string>();
+  }
 
+  if (vm.count("https-listen") || vm.count("https-address")) {
     checkPath(vm, "ssl-certificate", "SSL Certificate chain file",
 	      sslCertificateChainFile_, RegularFile);
     checkPath(vm, "ssl-private-key", "SSL Private key file",
@@ -366,9 +410,12 @@ void Configuration::readOptions(const po::variables_map& vm)
     }
   }
 
-  if (httpAddress_.empty() && httpsAddress_.empty()) {
+  if (httpListen_.empty() &&
+      httpAddress_.empty() &&
+      httpsListen_.empty() &&
+      httpsAddress_.empty()) {
     throw Wt::WServer::Exception
-      ("Specify http-address and/or https-address "
+      ("Specify http-listen, https-listen, http-address and/or https-address "
        "to run a HTTP and/or HTTPS server.");
   } 
 }

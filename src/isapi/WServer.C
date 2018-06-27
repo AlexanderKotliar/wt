@@ -3,14 +3,12 @@
  *
  * See the LICENSE file for terms of use.
  */
-#include "Wt/WServer"
+#include "Wt/WServer.h"
 #include "IsapiStream.h"
 #include "Server.h"
-#include "Wt/WLogger"
+#include "Wt/WLogger.h"
 #include "WebMain.h"
 #include "WebController.h"
-
-#include <boost/algorithm/string.hpp>
 
 #include <Windows.h>
 #include <fstream>
@@ -117,6 +115,8 @@ bool WServer::start()
     WebMain requestServer(this, &isapiStream);
     webMain = &requestServer;
 
+    isapi::IsapiServer::instance()->setServerStarted();
+
     requestServer.run();
 
     webMain = 0;
@@ -129,6 +129,7 @@ bool WServer::start()
     log("fatal") << "ISAPI server: caught unknown, unhandled exception.";
     throw;
   }
+
   return true;
 }
 
@@ -216,8 +217,7 @@ void WServer::run()
 //  return impl_->configuration()->readConfigurationProperty(name, value);
 //}
 
-void WServer::setSslPasswordCallback(
-  boost::function<std::string (std::size_t max_length, int purpose)> cb)
+void WServer::setSslPasswordCallback(const SslPasswordCallback& cb)
 {
   log("info") << "setSslPasswordCallback(): has no effect in isapi connector";
 }
@@ -230,7 +230,7 @@ int WRun(int argc, char *argv[], ApplicationCreator createApplication)
 
     try {
       server.setServerConfiguration(argc, argv);
-      server.addEntryPoint(Application, createApplication);
+      server.addEntryPoint(EntryPointType::Application, createApplication);
       server.start();
 
       return 0;

@@ -1,13 +1,16 @@
-SUBDIRS(Auth Chart Dbo Json Http Mail Payment Render Test)
+SUBDIRS(Auth Core Chart Date Dbo Json Http Mail Payment Render Signals Test)
 
-IF(ENABLE_EXT)
-  SUBDIRS(Ext)
-ELSE(ENABLE_EXT)
-  SUBDIRS(EXCLUDE_FROM_ALL Ext)
-ENDIF(ENABLE_EXT)
-
-INSTALL_FILES(/include/Wt "^W.*[^C~]$")
-INSTALL_FILES(/include/Wt "^Utils$")
+IF(INSTALL_EXTENSIONLESS_HEADERS)
+  INSTALL_FILES(/include/Wt "^W.*[^C~]$")
+ELSE(INSTALL_EXTENSIONLESS_HEADERS)
+  INSTALL_FILES(/include/Wt "^W.*[.]h$")
+ENDIF(INSTALL_EXTENSIONLESS_HEADERS)
+IF(INSTALL_EXTENSIONLESS_HEADERS)
+  INSTALL_FILES(/include/Wt "^Utils$")
+ENDIF(INSTALL_EXTENSIONLESS_HEADERS)
+INSTALL_FILES(/include/Wt "^Utils[.]h$")
+INSTALL_FILES(/include/Wt "^cpp17$")
+INSTALL_FILES(/include/Wt "^AsioWrapper$")
 #INSTALL(
 #  FILES
 #    "^W.*[^C~]$"
@@ -16,9 +19,6 @@ INSTALL_FILES(/include/Wt "^Utils$")
 #)
 
 IF (ASCIIDOC_FOUND)
-  IF(NOT WIN32)
-    ADD_CUSTOM_TARGET(doc)
-  ENDIF(NOT WIN32)
   ASCIIDOC_FILE(wt-tutorial
     ${CMAKE_SOURCE_DIR}/doc/tutorial/wt.doc
     ${CMAKE_SOURCE_DIR}/doc/tutorial/wt.html)

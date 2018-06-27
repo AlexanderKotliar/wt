@@ -4,14 +4,15 @@
  * See the LICENSE file for terms of use.
  */
 
-#include "Wt/WApplication"
-#include "Wt/WCanvasPaintDevice"
-#include "Wt/WEnvironment"
-#include "Wt/WFontMetrics"
-#include "Wt/WPainter"
-#include "Wt/WPainterPath"
-#include "Wt/WRectF"
-#include "Wt/WWebWidget"
+#include "Wt/WApplication.h"
+#include "Wt/WCanvasPaintDevice.h"
+#include "Wt/WEnvironment.h"
+#include "Wt/WFontMetrics.h"
+#include "Wt/WPainter.h"
+#include "Wt/WPainterPath.h"
+#include "Wt/WRectF.h"
+#include "Wt/WStringStream.h"
+#include "Wt/WWebWidget.h"
 
 #include "DomElement.h"
 #include "WebUtils.h"
@@ -19,7 +20,6 @@
 
 #include <cmath>
 #include <sstream>
-#include <boost/lexical_cast.hpp>
 
 namespace {
   static const double EPSILON = 1E-5;
@@ -54,13 +54,13 @@ namespace {
   std::string defineGradient(const Wt::WGradient& gradient,
 			     std::stringstream& js) {
     std::string jsRef = "grad";
-    if (gradient.style() == Wt::LinearGradient) {
+    if (gradient.style() == Wt::GradientStyle::Linear) {
       const WLineF& gradVec = gradient.linearGradientVector();
       js << "var " << jsRef << " = ctx.createLinearGradient("
 	  << gradVec.x1() << ", " << gradVec.y1() << ", "
 	  << gradVec.x2() << ", " << gradVec.y2()
 	  << ");";
-    } else if (gradient.style() == Wt::RadialGradient) {
+    } else if (gradient.style() == Wt::GradientStyle::Radial) {
       js << "var " << jsRef << " = ctx.createRadialGradient("
 	  << gradient.radialFocalPoint().x() << ", "
 	  << gradient.radialFocalPoint().y() << ","
@@ -83,32 +83,33 @@ namespace {
 
 WCanvasPaintDevice::WCanvasPaintDevice(const WLength& width,
 				       const WLength& height,
-				       WObject *parent,
 				       bool paintUpdate)
-  : WObject(parent),
-    width_(width),
+  : width_(width),
     height_(height),
-    painter_(0),
+    painter_(nullptr),
     paintUpdate_(paintUpdate),
     currentClippingEnabled_(false),
-    fontMetrics_(0)
-{ 
-  textMethod_ = Html5Text;
+    fontMetrics_(nullptr)
+{
+  textMethod_ = TextMethod::Html5Text;
 
   WApplication *app = WApplication::instance();
 
   if (app) {
     if (app->environment().agentIsChrome()) {
-      if (app->environment().agent() <= WEnvironment::Chrome2)
-	textMethod_ = DomText;
+      if (static_cast<unsigned int>(app->environment().agent()) <= 
+	  static_cast<unsigned int>(UserAgent::Chrome2))
+	textMethod_ = TextMethod::DomText;
     } else if (app->environment().agentIsGecko()) {
-      if (app->environment().agent() < WEnvironment::Firefox3_0)
-	textMethod_ = DomText;
-      else if (app->environment().agent() < WEnvironment::Firefox3_5)
-	textMethod_ = MozText;
+      if (static_cast<unsigned int>(app->environment().agent()) <
+	  static_cast<unsigned int>(UserAgent::Firefox3_0))
+	textMethod_ = TextMethod::DomText;
+      else if (static_cast<unsigned int>(app->environment().agent()) 
+	       < static_cast<unsigned int>(UserAgent::Firefox3_5))
+	textMethod_ = TextMethod::MozText;
     } else if (app->environment().agentIsSafari()) {
-      if (app->environment().agent() == WEnvironment::Safari3)
-	textMethod_ = DomText;
+      if (app->environment().agent() == UserAgent::Safari3)
+	textMethod_ = TextMethod::DomText;
     }
   }
 }
@@ -118,39 +119,35 @@ WCanvasPaintDevice::~WCanvasPaintDevice()
   delete fontMetrics_;
 }
 
-WFlags<WPaintDevice::FeatureFlag> WCanvasPaintDevice::features() const
+WFlags<PaintDeviceFeatureFlag> WCanvasPaintDevice::features() const
 {
   if (ServerSideFontMetrics::available())
-    return HasFontMetrics;
+    return PaintDeviceFeatureFlag::FontMetrics;
   else
-    return 0;
+    return None;
 }
 
-void WCanvasPaintDevice::render(const std::string& canvasId,
-				DomElement *text)
+void WCanvasPaintDevice::render(const std::string& paintedWidgetJsRef,
+                                const std::string& canvasId,
+                                DomElement *text,
+                                const std::string& updateAreasJs)
 {
   std::string canvasVar = WT_CLASS ".getElement('" + canvasId + "')";
 
-  recordedJs_.str("");
-  std::stringstream &tmp = recordedJs_;
+  WStringStream tmp;
+
+  tmp << ";" // Extra ; to make sure that JavaScript interprets the next thing as
+             // a separate statement (for when ; was forgotten in another doJavaScript call)
+         "(function(){";
+  tmp << "var pF=function(){";
 
   tmp <<
     "if(" << canvasVar << ".getContext){";
 
   if (!images_.empty()) {
-    tmp << "new Wt._p_.ImagePreloader([";
-
-    for (unsigned i = 0; i < images_.size(); ++i) {
-      if (i != 0)
-	tmp << ',';
-      tmp << '\'' << images_[i] << '\'';
-    }
-
-    tmp <<
-      "],function(images)";
+    tmp << "var images=" << paintedWidgetJsRef << ".images;";
   }
-
-  tmp << "{var ctx=" << canvasVar << ".getContext('2d');";
+  tmp << "var ctx=" << canvasVar << ".getContext('2d');";
   // Older browsers don't have setLineDash
   tmp << "if (!ctx.setLineDash) {ctx.setLineDash = function(a){};}";
 
@@ -162,13 +159,57 @@ void WCanvasPaintDevice::render(const std::string& canvasId,
   lastTransformWasIdentity_ = true;
 
   tmp << "ctx.save();" << js_.str()
-      << "ctx.restore();}";
-
-  if (!images_.empty()) {
-    tmp << ");";
-  }
+      << "ctx.restore();";
 
   tmp << "}";
+
+  tmp << updateAreasJs;
+
+  tmp << "};";
+
+  if (paintUpdate_)
+    tmp << paintedWidgetJsRef << ".repaint=function(){};";
+  else {
+    tmp << paintedWidgetJsRef << ".repaint=pF;";
+    tmp << "pF=function(){"
+        << paintedWidgetJsRef << ".repaint();"
+        << "};";
+  }
+
+  tmp << "var o=" << paintedWidgetJsRef << ";";
+  if (!paintUpdate_)
+    tmp << "o.cancelPreloaders();";
+  tmp << "if(" << canvasVar << ".getContext){";
+  tmp << "var l=new ";
+  tmp << wApp->javaScriptClass() << "._p_.ImagePreloader([";
+
+  for (unsigned i = 0; i < images_.size(); ++i) {
+    if (i != 0)
+      tmp << ',';
+    tmp << '\'' << images_[i] << '\'';
+  }
+
+  tmp << "],function(images){"
+           "this.done = true;"
+           "var o=" << paintedWidgetJsRef << ";"
+           "if(o.imagePreloaders.length===0||"
+             "this===o.imagePreloaders[0]){"
+             "o.images=images;"
+             "pF();"
+             "o.imagePreloaders.shift();"
+           "}else{"
+             "while(o.imagePreloaders.length>0&&"
+                   "o.imagePreloaders[0].done){"
+               "o.imagePreloaders[0].callback(o.imagePreloaders[0].images);"
+             "}"
+           "}"
+         "});"
+	 "if(!l.done)"
+	   "o.imagePreloaders.push(l);"
+       "}"
+       "})();";
+
+  text->callJavaScript(tmp.str());
 
   for (unsigned i = 0; i < textElements_.size(); ++i)
     text->addChild(textElements_[i]);
@@ -190,12 +231,15 @@ void WCanvasPaintDevice::init()
   currentNoBrush_ = false;
   currentPen_ = WPen();
   currentNoPen_ = false;
-  currentPen_.setCapStyle(FlatCap);
+  currentPen_.setCapStyle(PenCapStyle::Flat);
   currentShadow_ = WShadow();
   currentFont_ = WFont();
-  currentTextVAlign_ = currentTextHAlign_ = AlignSuper;
 
-  changeFlags_ = Transform | Pen | Brush | Shadow | Font;
+  changeFlags_ = PainterChangeFlag::Transform | 
+    PainterChangeFlag::Pen | 
+    PainterChangeFlag::Brush | 
+    PainterChangeFlag::Shadow | 
+    PainterChangeFlag::Font;
 }
 
 void WCanvasPaintDevice::done()
@@ -225,7 +269,7 @@ void WCanvasPaintDevice::drawArc(const WRectF& rect, double startAngle,
   }
 
   const WPen& pen = painter()->pen();
-  if (pen.style() != NoPen)
+  if (pen.style() != PenStyle::None)
     lw = painter()->normalizedPenWidth(pen.width(), true).value()
       * 1 / std::min(sx, sy);
   else
@@ -250,11 +294,11 @@ void WCanvasPaintDevice::drawArc(const WRectF& rect, double startAngle,
   // this temporary coordinate system
   js_ << "ctx.restore();";
 
-  if (painter_->brush().style() != NoBrush) {
+  if (painter_->brush().style() != BrushStyle::None) {
     js_ << "ctx.fill();";
   }
 
-  if (painter_->pen().style() != NoPen) {
+  if (painter_->pen().style() != PenStyle::None) {
     js_ << "ctx.stroke();";
   }
 }
@@ -301,49 +345,49 @@ void WCanvasPaintDevice::drawPlainPath(std::stringstream& out,
   const std::vector<WPainterPath::Segment>& segments = path.segments();
 
   if (segments.size() > 0
-      && segments[0].type() != WPainterPath::Segment::MoveTo)
+      && segments[0].type() != SegmentType::MoveTo)
     out << "ctx.moveTo(0,0);";
 
   for (unsigned i = 0; i < segments.size(); ++i) {
     const WPainterPath::Segment s = segments[i];
 
     switch (s.type()) {
-    case WPainterPath::Segment::MoveTo:
+    case SegmentType::MoveTo:
       out << "ctx.moveTo(" << Utils::round_js_str(s.x() + pathTranslation_.x(),
 						  3, buf);
       out << ',' << Utils::round_js_str(s.y() + pathTranslation_.y(),
 				     3, buf) << ");";
       break;
-    case WPainterPath::Segment::LineTo:
+    case SegmentType::LineTo:
       out << "ctx.lineTo(" << Utils::round_js_str(s.x() + pathTranslation_.x(),
 						  3, buf);
       out << ',' << Utils::round_js_str(s.y() + pathTranslation_.y(),
 					3, buf) << ");";
       break;
-    case WPainterPath::Segment::CubicC1:
+    case SegmentType::CubicC1:
       out << "ctx.bezierCurveTo("
 	  << Utils::round_js_str(s.x() + pathTranslation_.x(), 3, buf);
       out << ',' << Utils::round_js_str(s.y() + pathTranslation_.y(), 3, buf);
       break;
-    case WPainterPath::Segment::CubicC2:
+    case SegmentType::CubicC2:
       out << ',' << Utils::round_js_str(s.x() + pathTranslation_.x(), 3, buf)
 	  << ',';
       out << Utils::round_js_str(s.y() + pathTranslation_.y(), 3, buf);
       break;
-    case WPainterPath::Segment::CubicEnd:
+    case SegmentType::CubicEnd:
       out << ',' << Utils::round_js_str(s.x() + pathTranslation_.x(), 3, buf)
 	  << ',';
       out << Utils::round_js_str(s.y() + pathTranslation_.y(), 3, buf) << ");";
       break;
-    case WPainterPath::Segment::ArcC:
+    case SegmentType::ArcC:
       out << "ctx.arc(" << Utils::round_js_str(s.x() + pathTranslation_.x(), 3,
 					       buf) << ',';
       out << Utils::round_js_str(s.y() + pathTranslation_.y(), 3, buf);
       break;
-    case WPainterPath::Segment::ArcR:
+    case SegmentType::ArcR:
       out << ',' << Utils::round_js_str(std::max(0.0, s.x()), 3, buf);
       break;
-    case WPainterPath::Segment::ArcAngleSweep:
+    case SegmentType::ArcAngleSweep:
       {
 	WPointF r = normalizedDegreesToRadians(s.x(), s.y());
 
@@ -352,7 +396,7 @@ void WCanvasPaintDevice::drawPlainPath(std::stringstream& out,
 	out << ',' << (s.y() > 0 ? "true" : "false") << ");";
       }
       break;
-    case WPainterPath::Segment::QuadC: {
+    case SegmentType::QuadC: {
       const double cpx = s.x();
       const double cpy = s.y();
       out << "ctx.quadraticCurveTo("
@@ -361,7 +405,7 @@ void WCanvasPaintDevice::drawPlainPath(std::stringstream& out,
 
       break;
     }
-    case WPainterPath::Segment::QuadEnd:
+    case SegmentType::QuadEnd:
       out << ','
 	  << Utils::round_js_str(s.x() + pathTranslation_.x(), 3, buf) << ',';
       out << Utils::round_js_str(s.y() + pathTranslation_.y(), 3, buf) << ");";
@@ -394,12 +438,28 @@ void WCanvasPaintDevice::drawPath(const WPainterPath& path)
   }
 }
 
-void WCanvasPaintDevice::drawRect(const WRectF& rectangle)
+void WCanvasPaintDevice::drawStencilAlongPath(const WPainterPath &stencil,
+					      const WPainterPath &path,
+					      bool softClipping)
 {
   renderStateChanges(true);
-  js_ << WT_CLASS << ".gfxUtils.drawRect(ctx," << rectangle.jsRef() << ","
-    << (currentNoBrush_ ? "false" : "true") << ","
-    << (currentNoPen_ ? "false" : "true") << ");";
+  js_ << WT_CLASS << ".gfxUtils.drawStencilAlongPath(ctx,"
+      << stencil.jsRef() << "," << path.jsRef() << ","
+      << (currentNoBrush_ ? "false" : "true") << ","
+      << (currentNoPen_ ? "false" : "true") << ","
+      << (softClipping ? "true" : "false") << ");";
+}
+
+void WCanvasPaintDevice::drawRect(const WRectF& rectangle)
+{
+  if (rectangle.isJavaScriptBound()) {
+    renderStateChanges(true);
+    js_ << WT_CLASS << ".gfxUtils.drawRect(ctx," << rectangle.jsRef() << ","
+	<< (currentNoBrush_ ? "false" : "true") << ","
+	<< (currentNoPen_ ? "false" : "true") << ");";
+  } else {
+    drawPath(rectangle.toPath());
+  }
 }
 
 void WCanvasPaintDevice::drawLine(double x1, double y1, double x2, double y2)
@@ -416,135 +476,43 @@ void WCanvasPaintDevice::drawText(const WRectF& rect,
 				  const WString& text,
 				  const WPointF *clipPoint)
 {
-  if (textFlag == TextWordWrap)
+  if (textFlag == TextFlag::WordWrap)
     throw WException("WCanvasPaintDevice::drawText() "
-		     "TextWordWrap is not supported");
+		     "WordWrap is not supported");
 
   AlignmentFlag horizontalAlign = flags & AlignHorizontalMask;
   AlignmentFlag verticalAlign = flags & AlignVerticalMask;
 
-  if (textMethod_ != DomText) {
+  if (textMethod_ != TextMethod::DomText) {
     renderStateChanges(true);
   }
 
   switch (textMethod_) {
-  case Html5Text: 
+  case TextMethod::Html5Text: 
     {
-      double x = 0, y = 0;
-      
-      if (horizontalAlign != currentTextHAlign_) {
-	js_ << "ctx.textAlign='";
-	switch (horizontalAlign) {
-	case AlignLeft: js_ << "left"; break;
-	case AlignRight: js_ << "right"; break;
-	case AlignCenter: js_ << "center"; break;
-	default: break;
-	}
-	js_ << "';";
-	currentTextHAlign_ = horizontalAlign;
+      js_ << WT_CLASS ".gfxUtils.drawText(ctx,"
+	  << rect.jsRef() << ',' << flags.value() << ','
+	  << text.jsStringLiteral();
+      if (clipPoint && painter()) {
+	js_ << ',' << painter()->worldTransform().map(*clipPoint).jsRef();
       }
-
-      if (verticalAlign != currentTextVAlign_) {
-	js_ << "ctx.textBaseline='";
-	switch (verticalAlign) {
-	case AlignTop: js_ << "top"; break;
-	case AlignBottom: js_ << "bottom"; break;
-	case AlignMiddle: js_ << "middle"; break;
-	default: break;
-	}
-	js_ << "';";
-	currentTextVAlign_ = verticalAlign;
-      }
-
-      // Set fillstyle to pen color for text
-      if (currentPen_.isJavaScriptBound()) {
-	js_ << "ctx.fillStyle=" WT_CLASS ".gfxUtils.css_text(" << currentPen_.jsRef() << ".color);";
-      } else if (currentBrush_.color() != currentPen_.color() || currentBrush_.isJavaScriptBound())
-	js_ << "ctx.fillStyle="
-	    << WWebWidget::jsStringLiteral(currentPen_.color().cssText(true))
-	    << ";";
-
-      char buf[30];
-      
-      if (rect.isJavaScriptBound()) {
-	std::string s_x, s_y;
-	switch (horizontalAlign) {
-	case AlignLeft: s_x = WT_CLASS ".gfxUtils.rect_left(" + rect.jsRef() + ')'; break;
-	case AlignRight: s_x = WT_CLASS ".gfxUtils.rect_right(" + rect.jsRef() + ')'; break;
-	case AlignCenter: s_x = WT_CLASS ".gfxUtils.rect_center(" + rect.jsRef() + ").x"; break;
-	default: break;
-	}
-
-	switch (verticalAlign) {
-	case AlignTop: s_y = WT_CLASS ".gfxUtils.rect_top(" + rect.jsRef() + ')'; break;
-	case AlignBottom: s_y = WT_CLASS ".gfxUtils.rect_bottom(" + rect.jsRef() + ')'; break;
-	case AlignMiddle: s_y = WT_CLASS ".gfxUtils.rect_center(" + rect.jsRef() + ").y"; break;
-	default: break;
-	}
-
-	if (clipPoint && painter()) {
-	  js_ << "if (" WT_CLASS ".gfxUtils.pnpoly(" << painter()->worldTransform().map(*clipPoint).jsRef() << ","
-	    << painter()->clipPathTransform().map(painter()->clipPath()).jsRef() << ")) {";
-	}
-
-	js_ << "ctx.fillText(" << text.jsStringLiteral()
-	    << ',' << s_x << ',' << s_y << ");";
-
-	if (clipPoint && painter()) {
-	  js_ << "}";
-	}
-      } else {
-	switch (horizontalAlign) {
-	case AlignLeft: x = rect.left(); break;
-	case AlignRight: x = rect.right(); break;
-	case AlignCenter: x = rect.center().x(); break;
-	default: break;
-	}
-
-	switch (verticalAlign) {
-	case AlignTop: y = rect.top(); break;
-	case AlignBottom: y = rect.bottom(); break;
-	case AlignMiddle: y = rect.center().y(); break;
-	default: break;
-	}
-
-	if (clipPoint && painter()) {
-	  js_ << "if (" WT_CLASS ".gfxUtils.pnpoly(" << painter()->worldTransform().map(*clipPoint).jsRef() << ","
-	    << painter()->clipPathTransform().map(painter()->clipPath()).jsRef() << ")) {";
-	}
-
-	js_ << "ctx.fillText(" << text.jsStringLiteral()
-	    << ',' << Utils::round_js_str(x, 3, buf) << ',';
-	js_ << Utils::round_js_str(y, 3, buf) << ");";
-
-	if (clipPoint && painter()) {
-	  js_ << "}";
-	}
-      }
-
-      // Restore fillstyle to brush color
-      if (currentBrush_.isJavaScriptBound()) {
-	js_ << "ctx.fillStyle=" WT_CLASS ".gfxUtils.css_text(" << currentBrush_.jsRef() << ".color);";
-      } else if (currentBrush_.color() != currentPen_.color() || currentPen_.isJavaScriptBound())
-	js_ << "ctx.fillStyle="
-	    << WWebWidget::jsStringLiteral(currentBrush_.color().cssText(true))
-	    << ";";
+      js_ << ");";
     }
     break;
-  case MozText:
+  case TextMethod::MozText:
     {
       std::string x;
 
       switch (horizontalAlign) {
-      case AlignLeft:
-	x = boost::lexical_cast<std::string>(rect.left());
+      case AlignmentFlag::Left:
+	x = std::to_string(rect.left());
 	break;
-      case AlignRight:
-	x = boost::lexical_cast<std::string>(rect.right())
+      case AlignmentFlag::Right:
+	x = std::to_string(rect.right())
 	  + " - ctx.mozMeasureText(" + text.jsStringLiteral() + ")";
 	break;
-      case AlignCenter:
-	x = boost::lexical_cast<std::string>(rect.center().x())
+      case AlignmentFlag::Center:
+	x = std::to_string(rect.center().x())
 	  + " - ctx.mozMeasureText(" + text.jsStringLiteral() + ")/2";
 	break;
       default:
@@ -553,8 +521,8 @@ void WCanvasPaintDevice::drawText(const WRectF& rect,
 
       double fontSize;
       switch (painter()->font().size()) {
-      case WFont::FixedSize:
-	fontSize = painter()->font().fixedSize().toPixels();
+      case FontSize::FixedSize:
+	fontSize = painter()->font().sizeLength().toPixels();
 	break;
       default:
 	fontSize = 16;
@@ -562,11 +530,11 @@ void WCanvasPaintDevice::drawText(const WRectF& rect,
 
       double y = 0;
       switch (verticalAlign) {
-      case AlignTop:
+      case AlignmentFlag::Top:
 	y = rect.top() + fontSize * 0.75; break;
-      case AlignMiddle:
+      case AlignmentFlag::Middle:
 	y = rect.center().y() + fontSize * 0.25; break;
-      case AlignBottom:
+      case AlignmentFlag::Bottom:
 	y = rect.bottom() - fontSize * 0.25 ; break;
       default:
 	break;
@@ -584,20 +552,20 @@ void WCanvasPaintDevice::drawText(const WRectF& rect,
       js_ << "ctx.restore();";
     }
     break;
-  case DomText:
+  case TextMethod::DomText:
     {
       WPointF pos = painter()->combinedTransform().map(rect.topLeft());
 
-      DomElement *e = DomElement::createNew(DomElement_DIV);
-      e->setProperty(PropertyStylePosition, "absolute");
-      e->setProperty(PropertyStyleTop,
-		     boost::lexical_cast<std::string>(pos.y()) + "px");
-      e->setProperty(PropertyStyleLeft,
-		     boost::lexical_cast<std::string>(pos.x()) + "px");
-      e->setProperty(PropertyStyleWidth,
-		     boost::lexical_cast<std::string>(rect.width()) + "px");
-      e->setProperty(PropertyStyleHeight,
-		     boost::lexical_cast<std::string>(rect.height()) + "px");
+      DomElement *e = DomElement::createNew(DomElementType::DIV);
+      e->setProperty(Property::StylePosition, "absolute");
+      e->setProperty(Property::StyleTop,
+		     std::to_string(pos.y()) + "px");
+      e->setProperty(Property::StyleLeft,
+		     std::to_string(pos.x()) + "px");
+      e->setProperty(Property::StyleWidth,
+		     std::to_string(rect.width()) + "px");
+      e->setProperty(Property::StyleHeight,
+		     std::to_string(rect.height()) + "px");
 
       DomElement *t = e;
 
@@ -605,34 +573,34 @@ void WCanvasPaintDevice::drawText(const WRectF& rect,
        * HTML tricks to center things vertically -- does not work on IE,
        * (neither does canvas)
        */
-      if (verticalAlign != AlignTop) {
-	t = DomElement::createNew(DomElement_DIV);
+      if (verticalAlign != AlignmentFlag::Top) {
+	t = DomElement::createNew(DomElementType::DIV);
 
-	if (verticalAlign == AlignMiddle) {
-	  e->setProperty(PropertyStyleDisplay, "table");
-	  t->setProperty(PropertyStyleDisplay, "table-cell");
-	  t->setProperty(PropertyStyleVerticalAlign, "middle");
-	} else if (verticalAlign == AlignBottom) {
-	  t->setProperty(PropertyStylePosition, "absolute");
-	  t->setProperty(PropertyStyleWidth, "100%");
-	  t->setProperty(PropertyStyleBottom, "0px");
+	if (verticalAlign == AlignmentFlag::Middle) {
+	  e->setProperty(Property::StyleDisplay, "table");
+	  t->setProperty(Property::StyleDisplay, "table-cell");
+	  t->setProperty(Property::StyleVerticalAlign, "middle");
+	} else if (verticalAlign == AlignmentFlag::Bottom) {
+	  t->setProperty(Property::StylePosition, "absolute");
+	  t->setProperty(Property::StyleWidth, "100%");
+	  t->setProperty(Property::StyleBottom, "0px");
 	}
       }
 
-      t->setProperty(PropertyInnerHTML,
+      t->setProperty(Property::InnerHTML,
 		     WWebWidget::escapeText(text, true).toUTF8());
 
       WFont f = painter()->font();
       f.updateDomElement(*t, false, true);
 
-      t->setProperty(PropertyStyleColor, painter()->pen().color().cssText());
+      t->setProperty(Property::StyleColor, painter()->pen().color().cssText());
 
-      if (horizontalAlign == AlignRight)
-	t->setProperty(PropertyStyleTextAlign, "right");
-      else if (horizontalAlign == AlignCenter)
-	t->setProperty(PropertyStyleTextAlign, "center");
+      if (horizontalAlign == AlignmentFlag::Right)
+	t->setProperty(Property::StyleTextAlign, "right");
+      else if (horizontalAlign == AlignmentFlag::Center)
+	t->setProperty(Property::StyleTextAlign, "center");
       else
-	t->setProperty(PropertyStyleTextAlign, "left");
+	t->setProperty(Property::StyleTextAlign, "left");
 
       if (t != e)
 	e->addChild(t);
@@ -640,6 +608,32 @@ void WCanvasPaintDevice::drawText(const WRectF& rect,
       textElements_.push_back(e);
     }
   }
+}
+
+void WCanvasPaintDevice::drawTextOnPath(const WRectF &rect,
+					WFlags<AlignmentFlag> alignmentFlags,
+					const std::vector<WString> &text,
+					const WTransform &transform,
+					const WPainterPath &path,
+					double angle, double lineHeight,
+					bool softClipping)
+{
+  renderStateChanges(true);
+  js_ << WT_CLASS ".gfxUtils.drawTextOnPath(ctx,[";
+  for (std::size_t i = 0; i < text.size(); ++i) {
+    if (i != 0)
+      js_ << ',';
+    js_ << text[i].jsStringLiteral();
+  }
+  js_ << "],";
+  js_ << rect.jsRef() << ',';
+  js_ << transform.jsRef() << ',';
+  js_ << path.jsRef() << ',';
+  char buf[30];
+  js_ << Utils::round_js_str(angle, 3, buf) << ',';
+  js_ << Utils::round_js_str(lineHeight, 3, buf) << ',';
+  js_ << alignmentFlags.value() << ',';
+  js_ << (softClipping ? "true" : "false") << ");";
 }
 
 WTextItem WCanvasPaintDevice::measureText(const WString& text, double maxWidth,
@@ -659,7 +653,7 @@ WFontMetrics WCanvasPaintDevice::fontMetrics()
   return fontMetrics_->fontMetrics(painter()->font());
 }
 
-void WCanvasPaintDevice::setChanged(WFlags<ChangeFlag> flags)
+void WCanvasPaintDevice::setChanged(WFlags<PainterChangeFlag> flags)
 {
   changeFlags_ |= flags;
 }
@@ -667,16 +661,9 @@ void WCanvasPaintDevice::setChanged(WFlags<ChangeFlag> flags)
 void WCanvasPaintDevice::renderTransform(std::stringstream& s,
 					 const WTransform& t)
 {
-  if (t.isJavaScriptBound()) {
-    s << "ctx.setTransform.apply(ctx, " << t.jsRef() << ");";
-  } else if (!(t.isIdentity() && lastTransformWasIdentity_)) {
-    char buf[30];
-    s << "ctx.setTransform(" << Utils::round_js_str(t.m11(), 3, buf) << ",";
-    s			  << Utils::round_js_str(t.m12(), 3, buf) << ",";
-    s			  << Utils::round_js_str(t.m21(), 3, buf) << ",";
-    s			  << Utils::round_js_str(t.m22(), 3, buf) << ",";
-    s			  << Utils::round_js_str(t.m31(), 3, buf) << ",";
-    s                     << Utils::round_js_str(t.m32(), 3, buf) << ");";
+  if (!(t.isIdentity() && lastTransformWasIdentity_)) {
+    s << "ctx.wtTransform=" << t.jsRef() << ';';
+    s << "ctx.setTransform.apply(ctx, ctx.wtTransform);";
   }
   lastTransformWasIdentity_ = t.isIdentity();
 }
@@ -686,7 +673,7 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
   if (resetPathTranslation) {
     if (!fequal(pathTranslation_.x(), 0) ||
 	!fequal(pathTranslation_.y(), 0))
-      changeFlags_ |= Transform;
+      changeFlags_ |= PainterChangeFlag::Transform;
   }
 
   if (!changeFlags_)
@@ -704,14 +691,14 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
     slowFirefox = false;
 
   bool brushChanged =
-    (changeFlags_ & Brush) &&
+    changeFlags_.test(PainterChangeFlag::Brush) &&
     (currentBrush_ != painter()->brush()) &&
-    (slowFirefox || painter()->brush().style() != NoBrush);
+    (slowFirefox || painter()->brush().style() != BrushStyle::None);
 
   bool penChanged =
-    (changeFlags_ & Pen) &&
+    changeFlags_.test(PainterChangeFlag::Pen) &&
     (currentPen_ != painter()->pen()) &&
-    (slowFirefox || painter()->pen().style() != NoPen);
+    (slowFirefox || painter()->pen().style() != PenStyle::None);
 
   bool penColorChanged = 
     penChanged && 
@@ -720,64 +707,50 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
      currentPen_.gradient() != painter()->pen().gradient());
 
   bool shadowChanged =
-    (changeFlags_ & Shadow)
+    changeFlags_.test(PainterChangeFlag::Shadow)
     && (currentShadow_ != painter()->shadow());
 
-  bool fontChanged = (changeFlags_ & Font)
+  bool fontChanged = changeFlags_.test(PainterChangeFlag::Font)
     && (currentFont_ != painter()->font());
 
-  bool clippingChanged = (changeFlags_ & Clipping)
+  bool clippingChanged = changeFlags_.test(PainterChangeFlag::Clipping)
     && (currentClippingEnabled_ != painter()->hasClipping() ||
 	 currentClipPath_ != painter()->clipPath() ||
 	 currentClipTransform_ != painter()->clipPathTransform());
-  if (!painter()->hasClipping() && !currentClippingEnabled_) {
-    // Clipping wasn't enabled and won't be enabled, so path or transform changes
-    // don't matter.
-    clippingChanged = false;
-  }
 
-  changeFlags_.clear(Clipping);
+  changeFlags_.clear(PainterChangeFlag::Clipping);
 
-  if (changeFlags_ & Transform || clippingChanged) {
+  if (changeFlags_.test(PainterChangeFlag::Transform) || clippingChanged) {
     bool resetTransform = false;
 
     if (clippingChanged) {
       js_ << "ctx.restore();ctx.save();";
 
       lastTransformWasIdentity_ = true;
+      pathTranslation_.setX(0);
+      pathTranslation_.setY(0);
 
       const WTransform& t = painter()->clipPathTransform();
-
-      renderTransform(js_, t);
-      currentClipTransform_ = painter()->clipPathTransform();
-      if (painter()->hasClipping()) {
-	pathTranslation_.setX(0);
-	pathTranslation_.setY(0);
-
-	if (painter()->clipPath().isJavaScriptBound()) {
-	  js_ << WT_CLASS << ".gfxUtils.drawPath(ctx," << painter()->clipPath().jsRef() << ","
-	    "false,false,true);";
-	} else {
-	  drawPlainPath(js_, painter()->clipPath());
-	  js_ << "ctx.clip();";
-	}
-	currentClipPath_ = painter()->clipPath();
+      const WPainterPath &p = painter()->clipPath();
+      if (!p.isEmpty()) {
+	js_ << WT_CLASS << ".gfxUtils.setClipPath(ctx," << p.jsRef() << "," << t.jsRef() << ","
+	    << (painter()->hasClipping() ? "true" : "false") << ");";
       } else {
-	currentClipPath_ = WPainterPath();
+	js_ << WT_CLASS << ".gfxUtils.removeClipPath(ctx);";
       }
-      renderTransform(js_, WTransform());
+      currentClipTransform_ = t;
+      currentClipPath_ = p;
 
       penChanged = true;
       penColorChanged = true;
       brushChanged = true;
       shadowChanged = true;
       fontChanged = true;
-      currentTextHAlign_ = currentTextVAlign_ = AlignSuper;
       init();
       resetTransform = true;
 
       currentClippingEnabled_ = painter()->hasClipping();
-    } else if (changeFlags_ & Transform) {
+    } else if (changeFlags_.test(PainterChangeFlag::Transform)) {
       WTransform f = painter()->combinedTransform();
 
       resetTransform = currentTransform_ != f ||
@@ -823,7 +796,7 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
 	 pathTranslation_.setX(dx);
 	 pathTranslation_.setY(dy);
 
-	 changeFlags_ = 0;
+         changeFlags_ = None;
 
 	 resetTransform = false;
       }
@@ -837,8 +810,8 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
     }
   }
 
-  currentNoPen_ = painter()->pen().style() == NoPen;
-  currentNoBrush_ = painter()->brush().style() == NoBrush;
+  currentNoPen_ = painter()->pen().style() == PenStyle::None;
+  currentNoBrush_ = painter()->brush().style() == BrushStyle::None;
 
   if (penChanged) {
     if (penColorChanged) {
@@ -868,51 +841,72 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
       }
     }
 
+    char buf[30];
+    double lw = painter()->normalizedPenWidth(painter()->pen().width(), true).value();
+
     switch (painter()->pen().style()) {
-    case SolidLine:
+    case PenStyle::SolidLine:
       js_ << "ctx.setLineDash([]);";
       break;
-    case DashLine:
-      js_ << "ctx.setLineDash([4,2]);";
+    case PenStyle::DashLine:
+      js_ << "ctx.setLineDash([";
+      js_ << Utils::round_js_str(lw * 4.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 2.0, 3, buf);
+      js_ << "]);";
       break;
-    case DotLine:
-      js_ << "ctx.setLineDash([1,2]);";
+    case PenStyle::DotLine:
+      js_ << "ctx.setLineDash([";
+      js_ << Utils::round_js_str(lw * 1.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 2.0, 3, buf);
+      js_ << "]);";
       break;
-    case DashDotLine:
-      js_ << "ctx.setLineDash([4,2,1,2]);";
+    case PenStyle::DashDotLine:
+      js_ << "ctx.setLineDash([";
+      js_ << Utils::round_js_str(lw * 4.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 2.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 1.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 2.0, 3, buf);
+      js_ << "]);";
       break;
-    case DashDotDotLine:
-      js_ << "ctx.setLineDash([4,2,1,2,1,2]);";
+    case PenStyle::DashDotDotLine:
+      js_ << "ctx.setLineDash([";
+      js_ << Utils::round_js_str(lw * 4.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 2.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 1.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 2.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 1.0, 3, buf) << ',';
+      js_ << Utils::round_js_str(lw * 2.0, 3, buf);
+      js_ << "]);";
       break;
-    case NoPen:
+    case PenStyle::None:
       break;
     }
 
     js_ << "ctx.lineWidth="
-	<< painter()->normalizedPenWidth(painter()->pen().width(), true).value()
+        << Utils::round_js_str(lw, 3, buf)
 	<< ';';
 
     if (currentPen_.capStyle() != painter()->pen().capStyle())
       switch (painter()->pen().capStyle()) {
-      case FlatCap:
+      case PenCapStyle::Flat:
 	js_ << "ctx.lineCap='butt';";
 	break;
-      case SquareCap:
+      case PenCapStyle::Square:
 	js_ << "ctx.lineCap='square';";
 	break;
-      case RoundCap:
+      case PenCapStyle::Round:
 	js_ << "ctx.lineCap='round';";
       }
 
     if (currentPen_.joinStyle() != painter()->pen().joinStyle())
       switch (painter()->pen().joinStyle()) {
-      case MiterJoin:
+      case PenJoinStyle::Miter:
 	js_ << "ctx.lineJoin='miter';";
 	break;
-      case BevelJoin:
+      case PenJoinStyle::Bevel:
 	js_ << "ctx.lineJoin='bevel';";
 	break;
-      case RoundJoin:
+      case PenJoinStyle::Round:
 	js_ << "ctx.lineJoin='round';";
       }
 
@@ -927,7 +921,8 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
       renderStateChanges(true);
     } else {
       if (currentBrush_.isJavaScriptBound()) {
-	js_ << "ctx.fillStyle=" WT_CLASS ".gfxUtils.css_text(" << currentBrush_.jsRef() << ".color);";
+	js_ << "ctx.fillStyle=" WT_CLASS ".gfxUtils.css_text(" 
+	    << currentBrush_.jsRef() << ".color);";
       } else {
 	js_ << "ctx.fillStyle=" 
 	    << WWebWidget::jsStringLiteral(currentBrush_.color().cssText(true))
@@ -939,9 +934,14 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
   if (shadowChanged) {
     currentShadow_ = painter_->shadow();
 
-    js_ << "ctx.shadowOffsetX=" << currentShadow_.offsetX() << ';'
-	<< "ctx.shadowOffsetY=" << currentShadow_.offsetY() << ';'
-	<< "ctx.shadowBlur=" << currentShadow_.blur() << ';'
+    double offsetX = currentShadow_.offsetX();
+    double offsetY = currentShadow_.offsetY();
+    double blur = currentShadow_.blur();
+
+    char buf[30];
+    js_ << "ctx.shadowOffsetX=" << Utils::round_js_str(offsetX, 3, buf) << ';';
+    js_ << "ctx.shadowOffsetY=" << Utils::round_js_str(offsetY, 3, buf) << ';';
+    js_ << "ctx.shadowBlur=" << Utils::round_js_str(blur, 3, buf) << ';'
 	<< "ctx.shadowColor=" 
 	<< WWebWidget::jsStringLiteral(currentShadow_.color().cssText(true))
 	<< ";";
@@ -951,20 +951,20 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
     currentFont_ = painter_->font();
 
     switch (textMethod_) {
-    case Html5Text: 
+    case TextMethod::Html5Text: 
       js_ << "ctx.font="
 	  << WWebWidget::jsStringLiteral(painter()->font().cssText()) << ";";
       break;
-    case MozText:
+    case TextMethod::MozText:
       js_ << "ctx.mozTextStyle = "
 	  << WWebWidget::jsStringLiteral(painter()->font().cssText()) << ";";
       break;
-    case DomText:
+    case TextMethod::DomText:
       break;
     }
   }
 
-  changeFlags_ = 0;
+  changeFlags_ = None;
 }
 
 }

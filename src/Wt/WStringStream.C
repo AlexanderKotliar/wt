@@ -8,11 +8,10 @@
 #include <stdio.h>
 
 #ifndef NO_ASIO
-#include <boost/asio.hpp>
-namespace asio = boost::asio;
+#include <Wt/AsioWrapper/asio.hpp>
 #endif
 
-#include "Wt/WStringStream"
+#include "Wt/WStringStream.h"
 
 #include "WebUtils.h"
 
@@ -117,13 +116,6 @@ WStringStream& WStringStream::operator<< (char c)
   return *this;
 }
 
-WStringStream& WStringStream::operator<< (char *s)
-{
-  append(s, std::strlen(s));
-
-  return *this;
-}
-
 WStringStream& WStringStream::operator<< (const std::string& s)
 {
   append(s.data(), s.length());
@@ -205,14 +197,14 @@ std::string WStringStream::str() const
 }
 
 #ifndef NO_ASIO
-void WStringStream::asioBuffers(std::vector<asio::const_buffer>& result) const
+void WStringStream::asioBuffers(std::vector<AsioWrapper::asio::const_buffer>& result) const
 {
   result.reserve(result.size() + bufs_.size() + 1);
 
   for (unsigned int i = 0; i < bufs_.size(); ++i)
-    result.push_back(asio::buffer(bufs_[i].first, bufs_[i].second));
+    result.push_back(AsioWrapper::asio::buffer(bufs_[i].first, bufs_[i].second));
 
-  result.push_back(asio::buffer(buf_, buf_i_));
+  result.push_back(AsioWrapper::asio::buffer(buf_, buf_i_));
 }
 #endif
 

@@ -4,7 +4,7 @@
  * See the LICENSE file for terms of use.
  */
 
-#include "Wt/WAbstractProxyModel"
+#include "Wt/WAbstractProxyModel.h"
 
 namespace Wt {
 
@@ -13,23 +13,23 @@ namespace Wt {
 WAbstractProxyModel::BaseItem::~BaseItem()
 { }
 
-WAbstractProxyModel::WAbstractProxyModel(WObject *parent)
-  : WAbstractItemModel(parent),
-    sourceModel_(0)
+WAbstractProxyModel::WAbstractProxyModel()
+  : sourceModel_(nullptr)
 { }
 
-void WAbstractProxyModel::setSourceModel(WAbstractItemModel *sourceModel)
+void WAbstractProxyModel
+::setSourceModel(const std::shared_ptr<WAbstractItemModel>& sourceModel)
 {
   sourceModel_ = sourceModel;
 }
 
-boost::any WAbstractProxyModel::data(const WModelIndex& index, int role) const
+cpp17::any WAbstractProxyModel::data(const WModelIndex& index, ItemDataRole role) const
 {
   return sourceModel_->data(mapToSource(index), role);
 }
 
 bool WAbstractProxyModel::setData(const WModelIndex& index,
-				  const boost::any& value, int role)
+                                  const cpp17::any& value, ItemDataRole role)
 {
   return sourceModel_->setData(mapToSource(index), value, role);
 }
@@ -92,9 +92,10 @@ WModelIndex WAbstractProxyModel::fromRawIndex(void *rawIndex) const
   return mapFromSource(sourceModel_->fromRawIndex(rawIndex));
 }
 
-WFlags<HeaderFlag> WAbstractProxyModel::headerFlags(int section, Orientation orientation) const
+WFlags<HeaderFlag> WAbstractProxyModel::headerFlags(int section,
+						    Orientation orientation) const
 {
-  if (orientation == Wt::Horizontal) {
+  if (orientation == Wt::Orientation::Horizontal) {
     section = mapToSource(index(0, section, Wt::WModelIndex())).column();
   } else {
     section = mapToSource(index(section, 0, Wt::WModelIndex())).row();
@@ -102,9 +103,10 @@ WFlags<HeaderFlag> WAbstractProxyModel::headerFlags(int section, Orientation ori
   return sourceModel_->headerFlags(section, orientation);
 }
 
-boost::any WAbstractProxyModel::headerData(int section, Orientation orientation, int role) const
+cpp17::any WAbstractProxyModel::headerData(int section, Orientation orientation,
+                                        ItemDataRole role) const
 {
-  if (orientation == Wt::Horizontal) {
+  if (orientation == Wt::Orientation::Horizontal) {
     section = mapToSource(index(0, section, Wt::WModelIndex())).column();
   } else {
     section = mapToSource(index(section, 0, Wt::WModelIndex())).row();
@@ -118,40 +120,63 @@ WModelIndex WAbstractProxyModel::createSourceIndex(int row, int column,
   return sourceModel_->createIndex(row, column, ptr);
 }
 
-void WAbstractProxyModel::shiftModelIndexes(const WModelIndex& sourceParent,
-					    int start, int count,
-					    ItemMap& items)
+void WAbstractProxyModel::startShiftModelIndexes(const WModelIndex& sourceParent,
+						 int start, int count,
+						 ItemMap& items)
 {
   /*
    * We must shift all indexes within sourceParent >= start with count
    * and delete items when count < 0.
    */
-  std::vector<BaseItem *> shifted;
   std::vector<BaseItem *> erased;
 
-  for (ItemMap::iterator it
-	 = items.lower_bound(sourceModel()->index(start, 0, sourceParent));
+  WModelIndex startIndex;
+  if (sourceModel()->rowCount(sourceParent) == 0)
+    startIndex = sourceParent;
+  else if (start >= sourceModel()->rowCount(sourceParent))
+    return;
+  else
+    startIndex = sourceModel()->index(start, 0, sourceParent);
+
+#ifdef WT_TARGET_JAVA
+  if (!startIndex.isValid())
+    return;
+#endif
+  
+  for (ItemMap::iterator it = items.lower_bound(startIndex);
        it != items.end();) {
 #ifndef WT_TARGET_JAVA
     ItemMap::iterator n = it;
     ++n;
 #endif
     WModelIndex i = it->first;
+    if (i == sourceParent) {
+#ifndef WT_TARGET_JAVA
+      it = n;
+#endif      
+      continue;
+    }
 
     if (i.isValid()) {
       WModelIndex p = i.parent();
       if (p != sourceParent && !WModelIndex::isAncestor(p, sourceParent))
 	break;
 
-      if (p == sourceParent) {
-	shifted.push_back(it->second);
-      } else if (count < 0) {
+      if (p == sourceParent) { /* Child of source parent: shift or remove */
+	if (count < 0 &&
+	    i.row() >= start &&
+	    i.row() < start + (-count))
+	  erased.push_back(it->second);
+	else {
+	  itemsToShift_.push_back(it->second);
+	}
+      } else if (count < 0) { /* Other descendent: remove if necessary */
 	// delete indexes that are about to be deleted, if they are within
 	// the range of deleted indexes
 	do {
 	  if (p.parent() == sourceParent
 	      && p.row() >= start
-	      && p.row() < start - count) {
+	      && p.row() < start + (-count)) {
 	    erased.push_back(it->second);
 	    break;
 	  } else
@@ -165,30 +190,34 @@ void WAbstractProxyModel::shiftModelIndexes(const WModelIndex& sourceParent,
 #endif
   }
 
+  for (unsigned i = 0; i < itemsToShift_.size(); ++i) {
+    BaseItem *item = itemsToShift_[i];
+    items.erase(item->sourceIndex_);
+    item->sourceIndex_ = sourceModel()->index
+      (item->sourceIndex_.row() + count,
+       item->sourceIndex_.column(),
+       sourceParent);
+  }
+
   for (unsigned i = 0; i < erased.size(); ++i) {
     items.erase(erased[i]->sourceIndex_);
     delete erased[i];
   }
 
-  for (unsigned i = 0; i < shifted.size(); ++i) {
-    BaseItem *item = shifted[i];
-    items.erase(item->sourceIndex_);
-    if (item->sourceIndex_.row() + count >= start) {
-      item->sourceIndex_ = sourceModel()->index
-	(item->sourceIndex_.row() + count,
-	 item->sourceIndex_.column(),
-	 sourceParent);
-    } else {
-      delete item;
-      shifted[i] = 0;
-    }
-  }
-
-  for (unsigned i = 0; i < shifted.size(); ++i) {
-    if (shifted[i])
-      items[shifted[i]->sourceIndex_] = shifted[i];
-  }
+  if (count > 0)
+    endShiftModelIndexes(sourceParent, start, count, items);
 }
+ 
+void WAbstractProxyModel::endShiftModelIndexes(const WModelIndex& sourceParent,
+					       int start, int count,
+					       ItemMap& items)
+{
+  for (unsigned i = 0; i < itemsToShift_.size(); ++i)
+    items[itemsToShift_[i]->sourceIndex_] = itemsToShift_[i];
+
+  itemsToShift_.clear();
+}
+
 
 #endif // DOXYGEN_ONLY
 

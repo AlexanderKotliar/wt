@@ -4,16 +4,14 @@
  * See the LICENSE file for terms of use.
  */
 
-#include <boost/lexical_cast.hpp>
-
-#include "Wt/WApplication"
-#include "Wt/WContainerWidget"
-#include "Wt/WEnvironment"
-#include "Wt/WException"
-#include "Wt/WPoint"
-#include "Wt/WPopupMenu"
-#include "Wt/WPushButton"
-#include "Wt/WTemplate"
+#include "Wt/WApplication.h"
+#include "Wt/WContainerWidget.h"
+#include "Wt/WEnvironment.h"
+#include "Wt/WException.h"
+#include "Wt/WPoint.h"
+#include "Wt/WPopupMenu.h"
+#include "Wt/WPushButton.h"
+#include "Wt/WTemplate.h"
 
 #include "WebSession.h"
 
@@ -25,14 +23,15 @@ namespace Wt {
 
 WPopupMenu::WPopupMenu(WStackedWidget *contentsStack)
   : WMenu(contentsStack),
-    topLevel_(0),
-    result_(0),
-    location_(0),
-    button_(0),
-    aboutToHide_(this),
-    triggered_(this),
+    topLevel_(nullptr),
+    result_(nullptr),
+    location_(nullptr),
+    button_(nullptr),
+    aboutToHide_(),
+    triggered_(),
     cancel_(this, "cancel"),
     recursiveEventLoop_(false),
+    willPopup_(false),
     autoHideDelay_(-1)
 {
   const char *CSS_RULES_NAME = "Wt::WPopupMenu";
@@ -44,6 +43,8 @@ WPopupMenu::WPopupMenu(WStackedWidget *contentsStack)
       (".Wt-notselected .Wt-popupmenu", "visibility: hidden;", CSS_RULES_NAME);
 
   app->addGlobalWidget(this);
+  // Set high ZIndex so WPopupMenu is above pretty much every dialog by default
+  webWidget()->setBaseZIndex(10000);
   setPopup(true);
 
   hide();
@@ -54,8 +55,10 @@ WPopupMenu::~WPopupMenu()
   if (button_) {
     WPushButton *b = dynamic_cast<WPushButton *>(button_);
     if (b)
-      b->setMenu(0);
+      b->setMenu(nullptr);
   }
+
+  wApp->removeGlobalWidget(this);
 }
 
 void WPopupMenu::setButton(WInteractWidget *button)
@@ -83,14 +86,14 @@ void WPopupMenu::popupAtButton()
 }
 
 void WPopupMenu::setMaximumSize(const WLength& width,
-				const WLength& height)
+                                const WLength& height)
 {
   WCompositeWidget::setMaximumSize(width, height);
   ul()->setMaximumSize(width, height);
 }
 
 void WPopupMenu::setMinimumSize(const WLength& width,
-				const WLength& height)
+                                const WLength& height)
 {
   WCompositeWidget::setMinimumSize(width, height);
   ul()->setMinimumSize(width, height);
@@ -103,7 +106,7 @@ void WPopupMenu::setHidden(bool hidden, const WAnimation& animation)
   if (cancel_.isConnected() ||
       WApplication::instance()->session()->renderer().preLearning())
     doJavaScript("jQuery.data(" + jsRef() + ", 'obj').setHidden("
-		 + (hidden ? "1" : "0") + ");");
+                 + (hidden ? "1" : "0") + ");");
 }
 
 void WPopupMenu::done(WMenuItem *result)
@@ -117,7 +120,7 @@ void WPopupMenu::done(WMenuItem *result)
       parentItem()->removeStyleClass("open");
   }
 
-  location_ = 0;
+  location_ = nullptr;
   result_ = result;
 
   hide();
@@ -132,8 +135,11 @@ void WPopupMenu::done(WMenuItem *result)
 
 void WPopupMenu::cancel()
 {
+  if (willPopup_)
+    return;
+
   if (!isHidden())
-    done(0);
+    done(nullptr);
 }
 
 void WPopupMenu::popup(WWidget *location, Orientation orientation)
@@ -143,7 +149,7 @@ void WPopupMenu::popup(WWidget *location, Orientation orientation)
   popupImpl();
 
   doJavaScript("jQuery.data(" + jsRef() + ", 'obj').popupAt("
-	       + location->jsRef() + ");");
+               + location->jsRef() + ");");
 
   positionAt(location, orientation);
 }
@@ -155,12 +161,15 @@ void WPopupMenu::popup(const WMouseEvent& e)
 
 void WPopupMenu::popupImpl()
 {
-  result_ = 0;
+  result_ = nullptr;
 
   WApplication *app = WApplication::instance();
   prepareRender(app);
 
   show();
+
+  willPopup_ = true;
+  scheduleRender();
 }
 
 void WPopupMenu::popup(const WPoint& p)
@@ -168,12 +177,12 @@ void WPopupMenu::popup(const WPoint& p)
   popupImpl();
 
   // make sure we are not confused by client-side being positioned properly
-  setOffsets(42, Left | Top);
-  setOffsets(-10000, Left | Top);
+  setOffsets(42, Side::Left | Side::Top);
+  setOffsets(-10000, Side::Left | Side::Top);
 
   doJavaScript(WT_CLASS ".positionXY('" + id() + "',"
-	       + boost::lexical_cast<std::string>(p.x()) + ","
-	       + boost::lexical_cast<std::string>(p.y()) + ");");
+	       + std::to_string(p.x()) + ","
+	       + std::to_string(p.y()) + ");");
 }
 
 void WPopupMenu::prepareRender(WApplication *app)
@@ -280,7 +289,7 @@ WMenuItem *WPopupMenu::exec(WWidget *location, Orientation orientation)
 
   popup(location, orientation);
   exec();
- 
+
   return result_;
 }
 
@@ -294,5 +303,16 @@ void WPopupMenu::setAutoHide(bool enabled, int autoHideDelay)
 
 void WPopupMenu::renderSelected(WMenuItem *item, bool selected)
 { }
+
+void WPopupMenu::getSDomChanges(std::vector<DomElement *> &result, WApplication *app)
+{
+  WMenu::getSDomChanges(result, app);
+  willPopup_ = false;
+}
+void WPopupMenu::render(WFlags<RenderFlag> flags)
+{
+  WMenu::render(flags);
+  willPopup_ = false;
+}
 
 }
